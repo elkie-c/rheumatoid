@@ -9,9 +9,12 @@ librarian::shelf(haven,
 
 # setwd("/Users/elsiechan/Documents/GitHub/rheumatoid")
 
-setwd("/Users/elsiechan/Documents/GitHub/rheumatoid/kuan_folder")
+setwd("/Users/elsiechan/Documents/GitHub/rheumatoid")
 
-death <- readRDS("Death.RDS")
+# replace with your path to kuan's folder of rds
+path <- "/Users/elsiechan/Desktop/kuan_folder/"
+
+death <- readRDS(paste0(path, "Death.RDS"))
 diagnosis <- readRDS("Diagnosis.RDS")
 inpatient <- readRDS("Inpatient.RDS")
 prescription <- readRDS("Prescription.RDS")
