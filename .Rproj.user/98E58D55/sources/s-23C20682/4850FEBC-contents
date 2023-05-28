@@ -35,7 +35,6 @@ bioo <- bioo_df$Agent
 # manually extracted because the formating of the sheet is a little crude
 cdmard <- c("Sulfasalazine", "Mycophenolate", "Methotrexate", "Leflunomide", "Hydroxychloroquine", "Cyclophosphamide", "Ciclosporin", "Azathioprine", "Apremilast")
 
-
 # clean diagnosis ------------------------------------------------------
 # firstly, only consider pt if diagnosed with RA at least at some point in life
 # the following line shows that other than rheumatoid arthritis, you also have rheumatoid nodule arthritis
@@ -137,8 +136,10 @@ diagnosis_sub <- diagnosis_sub %>%
 
 
 # question 1: Uptake of b/tsDMARDs (stratified by mode of action and bio-originator / biosimilars) by year (2010-2022) among patients with rheumatoid arthritis (RA); --------------------------------------------------------------
-View(prescription)
 
+# from read excel sheet, we have obtained the drug list already. The useful variables would be biosimilar_df, bioo, and cdmard
+biosimilar_df
+prescription
 
 # clean inpatient ---------------------------------------------------------
 inpatient
