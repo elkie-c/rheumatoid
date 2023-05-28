@@ -246,11 +246,40 @@ prescription_traj <- prescription %>%
 # where it is not NA; so we only take the non-NA entries
 prescription_traj <- prescription_traj %>% filter(!is.na(DrugName_clean))
 
+# so sometimes dual drug therapy. Not so straightforward like using one drug then switch to another. But even if combine actually is not undoable. 
 
-# now this 20638 is an example where pt was taking hydroxychloroquine and lefluonomide
-prescription_traj %>% filter(ReferenceKey == 20638)
+# data exploration
+prescription_traj %>% filter(ReferenceKey == 20638) # hydroxychloroquine + lefluonomide, never switched
+prescription_traj %>% filter(ReferenceKey == 737169) # hydroxychloroquine + lefuonomide, never switched
+prescription_traj %>% filter(ReferenceKey == 679310) # tocilizumab monotherapy
+prescription %>% filter(ReferenceKey == 679310)  # in case interested to look at other drugs taken by this pt
+prescription_traj %>% filter(ReferenceKey == 666358) # methotrexate
+prescription_traj %>% filter(ReferenceKey == 673928)  # methotrexate
+prescription_traj %>% filter(ReferenceKey == 852239) # methotrexate + lefluonomide, Jan to March, just these two
+prescription_traj %>% filter(ReferenceKey == 847624) # methotrexate only
+prescription_traj %>% filter(ReferenceKey == 673928) # methotrexate only
 
-prescription_traj %>% arrange(ReferenceKey)
+# looking at those specifically with three drugs (so triple therapy, or had some switching (?))
+prescription_traj
+
+# Count the number of unique drugs for each patient and filter for patients with 3 or more unique drugs
+patients_with_3_or_more_drugs <- prescription_traj %>%
+  group_by(ReferenceKey) %>%
+  summarize(n_unique_drugs = n_distinct(DrugName_clean)) %>%
+  filter(n_unique_drugs >= 3) %>%
+  pull(ReferenceKey)
+
+
+prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[1]) # triple drugs given same time
+prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[2]) # hydroxychloroquine + methotrexate in Jan 16 to March 12th, given in four rows i.e. visited doctor twice, then tofactinib + methotrexate
+prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[3]) # triple drugs given same time (lefounomide, methotrexate, hydroxychloroquine)
+prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[4]) #(same triple)
+prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[6]) # last row called "Keep Record Only" ?
+prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[9]) # last row called "Keep Record Only" ?
+
+output <- "/Users/elsiechan/Desktop/prescription_traj.rds"
+saveRDS(object = prescription_traj, file = output)
+
 
 View(prescription_traj)
 View(prescription_traj[, c("ReferenceKey", "PrescriptionStartDate", "PrescriptionEndDate", "DrugName", "DrugName_clean")])

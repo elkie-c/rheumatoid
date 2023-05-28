@@ -229,18 +229,60 @@ prescription_sub <- prescription_sub %>% filter(ReferenceKey %in% diagnosis_sub$
 # question 2 treatment trajectory -----------------------------------------
 # remove white space and non-breaking space; convert to capital letters
 drugs <- gsub("[[:space:]\u00A0]", "", 
-              toupper(c(cdmard, bioo, bio_df$`Brand name`, bio_df$Ingredient)))
+              toupper(c(cdmard, bioo, bio_df$`Brand name`, unique(bio_df$Ingredient))))
 
 # these are drugs for treating RA, may be switched around; but what about brand names?
+# prescription <- prescription[1:300000, ]
 
-# prescription_traj; a df just for making those trajectory plots since we subset out the relevant drugs
+# Clean the drug names using case_when() and str_detect()
 prescription_traj <- prescription %>%
-  filter(grepl(pattern = paste(drugs, collapse = "|"),
-               x = DrugName))
+  mutate(
+    DrugName_clean = case_when(
+      str_detect(DrugName, str_c(drugs, collapse = "|")) ~ str_extract(DrugName, str_c(drugs, collapse = "|")),
+      TRUE ~ NA_character_
+    )
+  )
 
-prescription_traj %>% arrange(ReferenceKey)
+# where it is not NA; so we only take the non-NA entries
+prescription_traj <- prescription_traj %>% filter(!is.na(DrugName_clean))
 
-View(prescription_traj[, c("ReferenceKey", "PrescriptionStartDate", "PrescriptionEndDate", "DrugName")])
+# so sometimes dual drug therapy. Not so straightforward like using one drug then switch to another. But even if combine actually is not undoable. 
+
+# data exploration
+prescription_traj %>% filter(ReferenceKey == 20638) # hydroxychloroquine + lefluonomide, never switched
+prescription_traj %>% filter(ReferenceKey == 737169) # hydroxychloroquine + lefuonomide, never switched
+prescription_traj %>% filter(ReferenceKey == 679310) # tocilizumab monotherapy
+prescription %>% filter(ReferenceKey == 679310)  # in case interested to look at other drugs taken by this pt
+prescription_traj %>% filter(ReferenceKey == 666358) # methotrexate
+prescription_traj %>% filter(ReferenceKey == 673928)  # methotrexate
+prescription_traj %>% filter(ReferenceKey == 852239) # methotrexate + lefluonomide, Jan to March, just these two
+prescription_traj %>% filter(ReferenceKey == 847624) # methotrexate only
+prescription_traj %>% filter(ReferenceKey == 673928) # methotrexate only
+
+# looking at those specifically with three drugs (so triple therapy, or had some switching (?))
+prescription_traj
+
+# Count the number of unique drugs for each patient and filter for patients with 3 or more unique drugs
+patients_with_3_or_more_drugs <- prescription_traj %>%
+  group_by(ReferenceKey) %>%
+  summarize(n_unique_drugs = n_distinct(DrugName_clean)) %>%
+  filter(n_unique_drugs >= 3) %>%
+  pull(ReferenceKey)
+
+
+prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[1]) # triple drugs given same time
+prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[2]) # hydroxychloroquine + methotrexate in Jan 16 to March 12th, given in four rows i.e. visited doctor twice, then tofactinib + methotrexate
+prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[3]) # triple drugs given same time (lefounomide, methotrexate, hydroxychloroquine)
+prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[4]) #(same triple)
+prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[6]) # last row called "Keep Record Only" ?
+prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[9]) # last row called "Keep Record Only" ?
+
+output <- "/Users/elsiechan/Desktop/prescription_traj.rds"
+saveRDS(object = prescription_traj, file = output)
+
+
+View(prescription_traj)
+View(prescription_traj[, c("ReferenceKey", "PrescriptionStartDate", "PrescriptionEndDate", "DrugName", "DrugName_clean")])
 
 # but after grepping the brandname, you STILL want other medications taken by the same pt, because this will tell us whether the pt switched drug, or took additional drugs
 # prescription_sub <- prescription %>% filter(ReferenceKey %in% pt_with_labelled_brand)
