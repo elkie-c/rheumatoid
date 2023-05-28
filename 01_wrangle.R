@@ -133,14 +133,20 @@ pattern = "099\\.3|
 
 unwanted_ra <- diagnosis_sub[other_biologic, "Reference.Key."]
 
+# how many pts did we exclude this way?
+# at first, we have 24099 unique pt with those RA conditions, cancer or not, inclusive.
+# unique(diagnosis_sub$Reference.Key.)
+# then, unwanted_ra gives us 194 in the following line
+# length(unique(unwanted_ra))
+# so we have eliminated 194 of those RA pt with some kind of indications for biologic BEFORE diagnosis of RA. But later as I found out even though they do have these indications, none of those pt contributed to our analysis, likely because they were not given biologics, or they were given biologics or an unknown type i.e. biosimilar or biooriginator
 diagnosis_sub <- diagnosis_sub %>% 
   filter(!Reference.Key. %in% unwanted_ra)
+
 
 # dplyr::arrange(diagnosis_sub, Reference.Key.)
 
 
-# question 1: Uptake of b/tsDMARDs (stratified by mode of action and bio-originator / biosimilars) by year (2010-2022) among patients with rheumatoid arthritis (RA); --------------------------------------------------------------
-
+# clean prescription df--------------------------------------------------------------
 # from read excel sheet, we have obtained the drug list already. The useful variables would be biosimilar_df, bioo, and cdmard
 
 # filter the prescription to obtain only rows of those three biologics (for DEMONSTRATION only because we are not using this table)
@@ -152,13 +158,18 @@ diagnosis_sub <- diagnosis_sub %>%
 # table(prescription_sub$DrugName)
 
 # so instead we'll grep the brandname
-prescription_sub <- prescription %>% 
+pt_with_labelled_brand <- prescription %>% 
   filter(grepl(pattern = paste(unique(bio_df$`Brand name`), collapse = "|"),
-               x = DrugName))
+               x = DrugName)) %>% 
+  select(ReferenceKey) %>% 
+  pull()
+
+# but after grepping the brandname, you STILL want other medications taken by the same pt, because this will tell us whether the pt switched drug, or took additional drugs
+prescription_sub <- prescription %>% filter(ReferenceKey %in% pt_with_labelled_brand)
 
 # table(prescription_sub$DrugName)
 
-# standardize the drug name into three new columns: ingredient, brand, bios or bioo
+# standardize the drug name into three new columns: ingredient, brand, bioo_or_bios (bios or bioo?)
 # firstly, obtain the character vector for each of the three biologics
 infliximab <- bio_df %>% filter(Ingredient == "INFLIXIMAB") %>% select(`Brand name`) %>% pull()
 infliximab <- unique(c("INFLIXIMAB", infliximab))
@@ -193,25 +204,42 @@ prescription_sub <- prescription_sub %>%
       TRUE ~ NA_character_)
   )
 
-df$SNV <- df %>% 
-  select(SNV) %>%
+# Thirdly, now is just brute force to extract the brand names as there is no clever meaningful way of doing so
+prescription_sub <- prescription_sub %>% 
   mutate(
-    SNV = case_when(
-      SNV == 'GA' ~ 'CT',
-      SNV == 'GC' ~ 'CG',
-      SNV == 'GT' ~ 'CA',
-      SNV == 'TA' ~ 'AT',
-      SNV == 'TC' ~ 'AG',
-      SNV == 'TG' ~ 'AC',
-      TRUE ~ SNV
-    )
-  )
+    brand = case_when(
+      str_detect(DrugName, "REMICADE") ~ "REMICADE",
+      str_detect(DrugName, "REMSIMA") ~ "REMSIMA",
+      str_detect(DrugName, "HUMIRA") ~ "HUMIRA",
+      str_detect(DrugName, "HULIO") ~ "HULIO",
+      str_detect(DrugName, "ADALLOCE") ~ "ADALLOCE",
+      str_detect(DrugName, "AMGEVITA") ~ "AMGEVITA",
+      str_detect(DrugName, "IDACIO") ~ "IDACIO",
+      str_detect(DrugName, "HYRIMOZ") ~ "HYRIMOZ",
+      str_detect(DrugName, "MABTHERA") ~ "MABTHERA",
+      str_detect(DrugName, "RIXATHON") ~ "RIXATHON",
+      str_detect(DrugName, "TRUXIMA") ~ "TRUXIMA",
+      TRUE ~ NA_character_)
+  ) # note even though a lot of brands, just for sake of completeness; our data only has HUMIRA, REMICADE, and REMSIMA
+
+# to prove the point our data only has HUMIRA, REMICADE, REMSIMA
+# grep(pattern = paste(bio_df %>% select(`Brand name`) %>% pull(), collapse = "|"), x = unique(prescription$DrugName), value = TRUE)
+
+
+
+# question 1: Uptake of b/tsDMARDs (stratified by mode of action and bio-originator / biosimilars) by year (2010-2022) among patients with rheumatoid arthritis (RA);--------
+# now we have a prescription table with cleaned information. Now we need to merge the diagnosis table to ONLY get the pts that meet our criteria, and look at the descriptive statistics of their uptake
+prescription_sub <- prescription_sub %>% filter(ReferenceKey %in% diagnosis_sub$Reference.Key.) # essential step, but does not affect our results
+
+# very strangely, pts in prescription_sub is merely a subset of pts in diagnosis_sub. It makes sense the diagnosis_sub is more, because there are pt diagnosed with RA and not given biologics. However, I am confused the pts in prescrpition_sub is entirely a subset. Because I would expect there to be pt prescribed with biologics, but have nothing to do with RA. Or pt prescribed with biologics for autoimmune conditions before RA. But later I realised they may have been prescribed with unlabelled biologics anyways, or simply not given biologics
+
+# full_join(prescription_sub, diagnosis_sub[, c("Reference.Key.", "first_ra")], by = c("ReferenceKey" = "Reference.Key."))
+
 
 # clean inpatient ---------------------------------------------------------
 
 
-# clean prescription -----------------------------------------------------
-prescription
+
 
 
 # rough -------------------------------------------------------------------
@@ -222,7 +250,6 @@ diagnosis_sub <- diagnosis[diagnosis$Reference.Key. %in% ra_vector_refkey, ]
 colnames(prescription)
 colnames(inpatient)
 colnames(diagnosis)
-# update ensure working
 View(death)
 View(diagnosis)
 View(inpatient)
