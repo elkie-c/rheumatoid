@@ -77,7 +77,7 @@ earliest_ra <- diagnosis[diagnosis$All.Diagnosis.Description..HAMDCT.. %in% ra_v
 diagnosis_sub <- dplyr::left_join(x = diagnosis,
                                   y = earliest_ra,
                                   by = "Reference.Key.") %>%
-  filter(Reference.Date. < first_ra)
+  filter(Reference.Date. <= first_ra) # lesser or equal to so we keep the RA columns and do not exclude them
 
 
 # obtain a list of all biologics indications
@@ -133,15 +133,18 @@ unwanted_ra <- diagnosis_sub[other_biologic, "Reference.Key."]
 diagnosis_sub <- diagnosis_sub %>% 
   filter(!Reference.Key. %in% unwanted_ra)
 
+# dplyr::arrange(diagnosis_sub, Reference.Key.)
 
 
+# question 1: Uptake of b/tsDMARDs (stratified by mode of action and bio-originator / biosimilars) by year (2010-2022) among patients with rheumatoid arthritis (RA); --------------------------------------------------------------
+View(prescription)
 
 
 # clean inpatient ---------------------------------------------------------
 inpatient
 
-# clean presscription -----------------------------------------------------
-
+# clean prescription -----------------------------------------------------
+prescription
 
 
 # rough -------------------------------------------------------------------
