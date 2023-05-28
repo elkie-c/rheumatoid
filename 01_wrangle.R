@@ -157,18 +157,6 @@ diagnosis_sub <- diagnosis_sub %>%
 # this table shows there are many labels of just the biologic, but not the brandname. Which means we do not know if those are actually bios or bioo
 # table(prescription_sub$DrugName)
 
-# so instead we'll grep the brandname
-pt_with_labelled_brand <- prescription %>% 
-  filter(grepl(pattern = paste(unique(bio_df$`Brand name`), collapse = "|"),
-               x = DrugName)) %>% 
-  select(ReferenceKey) %>% 
-  pull()
-
-# but after grepping the brandname, you STILL want other medications taken by the same pt, because this will tell us whether the pt switched drug, or took additional drugs
-prescription_sub <- prescription %>% filter(ReferenceKey %in% pt_with_labelled_brand)
-
-# table(prescription_sub$DrugName)
-
 # standardize the drug name into three new columns: ingredient, brand, bioo_or_bios (bios or bioo?)
 # firstly, obtain the character vector for each of the three biologics
 infliximab <- bio_df %>% filter(Ingredient == "INFLIXIMAB") %>% select(`Brand name`) %>% pull()
@@ -182,7 +170,7 @@ rituximab <- unique(c("RITUXIMAB", rituximab))
 
 # now, create the ingredient column
 # table(prescription_sub$DrugName)
-prescription_sub <- prescription_sub %>% 
+prescription_sub <- prescription %>% 
   mutate(
     ingredient = case_when(
       stringr::str_detect(DrugName, paste(infliximab, collapse = "|")) ~ "INFLIXIMAB", # using string infliximab, because sometimes only brand name, but not ingredient name given. So you would miss that if you hadn't use this string
@@ -229,20 +217,52 @@ prescription_sub <- prescription_sub %>%
 
 # question 1: Uptake of b/tsDMARDs (stratified by mode of action and bio-originator / biosimilars) by year (2010-2022) among patients with rheumatoid arthritis (RA);--------
 # now we have a prescription table with cleaned information. Now we need to merge the diagnosis table to ONLY get the pts that meet our criteria, and look at the descriptive statistics of their uptake
-prescription_sub <- prescription_sub %>% filter(ReferenceKey %in% diagnosis_sub$Reference.Key.) # essential step, but does not affect our results
+prescription_sub <- prescription_sub %>% filter(ReferenceKey %in% diagnosis_sub$Reference.Key.) # essential step
 
 # very strangely, pts in prescription_sub is merely a subset of pts in diagnosis_sub. It makes sense the diagnosis_sub is more, because there are pt diagnosed with RA and not given biologics. However, I am confused the pts in prescrpition_sub is entirely a subset. Because I would expect there to be pt prescribed with biologics, but have nothing to do with RA. Or pt prescribed with biologics for autoimmune conditions before RA. But later I realised they may have been prescribed with unlabelled biologics anyways, or simply not given biologics
 
 # full_join(prescription_sub, diagnosis_sub[, c("Reference.Key.", "first_ra")], by = c("ReferenceKey" = "Reference.Key."))
 
 
-# clean inpatient ---------------------------------------------------------
+
+
+# question 2 treatment trajectory -----------------------------------------
+# remove white space and non-breaking space; convert to capital letters
+drugs <- gsub("[[:space:]\u00A0]", "", 
+              toupper(c(cdmard, bioo, bio_df$`Brand name`, bio_df$Ingredient)))
+
+# these are drugs for treating RA, may be switched around; but what about brand names?
+
+# prescription_traj; a df just for making those trajectory plots since we subset out the relevant drugs
+prescription_traj <- prescription %>%
+  filter(grepl(pattern = paste(drugs, collapse = "|"),
+               x = DrugName))
+
+prescription_traj %>% arrange(ReferenceKey)
+
+View(prescription_traj[, c("ReferenceKey", "PrescriptionStartDate", "PrescriptionEndDate", "DrugName")])
+
+# but after grepping the brandname, you STILL want other medications taken by the same pt, because this will tell us whether the pt switched drug, or took additional drugs
+# prescription_sub <- prescription %>% filter(ReferenceKey %in% pt_with_labelled_brand)
+
+
 
 
 
 
 
 # rough -------------------------------------------------------------------
+# grepping the brand name
+# pt_with_labelled_brand <- prescription %>% 
+#   filter(grepl(pattern = paste(unique(bio_df$`Brand name`), collapse = "|"),
+#                x = DrugName)) %>% 
+#   select(ReferenceKey) %>% 
+#   pull()
+
+# but after grepping the brandname, you STILL want other medications taken by the same pt, because this will tell us whether the pt switched drug, or took additional drugs
+# prescription_sub <- prescription %>% filter(ReferenceKey %in% pt_with_labelled_brand)
+
+
 # Filter the diagnosis table to only get pt who has, in their lifetime, been diagnosed with any in ra_vec
 ra_vector_refkey <- diagnosis[diagnosis$All.Diagnosis.Description..HAMDCT.. %in% ra_vector, "Reference.Key."]
 diagnosis_sub <- diagnosis[diagnosis$Reference.Key. %in% ra_vector_refkey, ]
