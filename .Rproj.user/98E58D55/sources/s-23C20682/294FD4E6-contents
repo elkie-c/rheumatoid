@@ -1,0 +1,114 @@
+
+# minimal reproducible example --------------------------------------------
+
+df <- df %>% 
+  select (PrescriptionStartDate, PrescriptionEndDate, DrugName_clean) %>% 
+  unique()
+
+df %>% select(DrugName_clean) %>% pull()
+
+df <- data.frame(
+  PrescriptionStartDate = c("2019-03-27", "2019-03-27", "2019-03-27", "2019-08-14", "2019-08-14", "2019-08-14", "2018-02-14", "2018-06-20", "2018-12-19", "2018-12-19", "2018-12-19", "2017-01-18", "2017-08-30", "2016-02-17", "2016-08-03", "2013-07-25", "2013-11-20", "2014-04-23", "2014-06-18", "2014-11-13", "2015-04-15", "2015-08-12", "2020-03-02", "2020-03-02", "2020-03-02", "2020-09-30", "2020-09-30", "2020-09-30", "2021-05-05", "2021-05-05", "2021-12-08", "2021-12-08"),
+  PrescriptionEndDate = c("2019-08-13", "2019-08-13", "2019-08-13", "2020-02-25", "2020-02-25", "2020-02-25", "2018-06-19", "2018-12-18", "2019-04-09", "2019-04-09", "2019-04-09", "2017-08-15", "2018-02-13", "2016-08-02", "2017-01-17", "2013-11-13", "2014-04-22", "2014-06-17", "2014-11-11", "2015-04-15", "2015-08-11", "2016-02-16", "2020-10-04", "2020-10-04", "2020-10-04", "2021-05-04", "2021-05-04", "2021-05-04", "2021-12-14", "2021-12-14", "2022-05-24", "2022-05-24"),
+  DrugName_clean = c("HYDROXYCHLOROQUINE", "LEFLUNOMIDE", "METHOTREXATE", "HYDROXYCHLOROQUINE", "LEFLUNOMIDE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "HYDROXYCHLOROQUINE", "LEFLUNOMIDE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "HYDROXYCHLOROQUINE", "LEFLUNOMIDE", "METHOTREXATE", "HYDROXYCHLOROQUINE", "LEFLUNOMIDE", "METHOTREXATE", "LEFLUNOMIDE", "METHOTREXATE", "LEFLUNOMIDE", "METHOTREXATE"))     
+
+# gap_output <- vector("numeric", nrow(df)-1) 
+#' calculate gaps 
+#'
+#' @param df 
+#' @input for now takes the same drug, df under prescription, but the data should be arranged by prescription date
+#' @return gap_output which contains the number of days of gap between entry to the next (if not 0)
+#' @export
+#'
+#' @examples df %>% filter(DrugName_clean == "METHOTREXATE")
+#' gap(df)
+
+gap <- function(df) {
+  df <- df[order(df$PrescriptionStartDate), ] # may be redundant but must make sure ordered)
+  
+  gap_output <- c(rep(5, nrow(df)-1), NA) # just to init to a different value to see if the code is really working
+  # you need the NA later for combining the gap_output with the df, or else would just be missing value if we don't put the NA there
+  
+  for (i in seq(nrow(df))[-nrow(df)]) { # remove the last item, i.e. the nrow, because i+1 would not exist
+    
+    if (df$PrescriptionEndDate[i] > df$PrescriptionStartDate[i+1]) {# so if the current end date larger than next start date, already means overlap
+      # of if less than a threshold
+      gap_output[i] <- 0
+    } else {
+      gap_output[i] <-  df$PrescriptionStartDate[i+1] - df$PrescriptionEndDate[i] # the difference would be the gap; so gap on row n, would mean the break between row n + 1 startdate and row n enddate
+    }
+  }
+  df$gap_output <- gap_output
+  return(df)
+}
+
+# so you have an output df from the above. Next step is MUTATE to add the boolean (in 01_wrangle)
+
+#' merge dates
+#' so based on the output of gap_output, you have the dates and gaps. Then this function will merge based on the boolean. 
+#' @param df 
+#'
+#' @return merged dates, a simplified df with three columns of PrescriptionStartDate, PrescriptionEndDate, and DrugName_clean
+#' @export
+#' what it does is gets the period. Uses careful initialisation so the first period starts with the PrescriptionStartDate of i=1, until there is a break in the period which is given by the FALSE boolean of the gap_boolean column. e.g. if there is a false at i=4, the first period would be from i=1 start date to i=3 end date. The initial_i will then become startdate of i=4. This repeats until we get the next FALSE or reach the end, the last row, where the gap_boolean will be = NA. That is the case of elseif.
+#' @examples merge_dates(df)
+merge_dates <- function(df) {
+  
+  # as you do NOT know the length of output since it depends on the number of gaps, we'll have to use rbind which is more clumsy
+  output <- data.frame(
+    PrescriptionStartDate = double(),
+    PrescriptionEndDate = double(),
+    DrugName_clean = character()
+  )
+  
+  initial_i <- 1 # so for the first period of time, you assume starting with start date of i = 1 since df is already arranged in ascending order
+  for (i in seq(nrow(df))) {
+    
+    if (!is.na(df$gap_boolean[i]) && df$gap_boolean[i] == TRUE) { # if it reaches where there is a gap
+      # so let's say i = 4 you hit a TRUE, the first time you want the period from initial_i i.e. i = 1 StartDate to i = 3 EndDate (because the break is between EndDate of i=3 and startDate of i=4
+      output <- rbind(output, 
+                      setNames(data.frame(df$PrescriptionStartDate[initial_i], df$PrescriptionEndDate[i-1], df$DrugName_clean[i]), nm = colnames(output))
+      ) # use setNames to prevent the data.frame rigging the actual names we wanted
+      
+      # whenever you created a new period for the drug, you need to reset the initial_i so it starts at i rather than at initial_i = 1, because at i is where the new beginning of the next period is
+      initial_i <- i
+    } else if (is.na(df$gap_boolean[i])) { # or when is.na() exists, signals we reached the end
+      
+      # unlike if, we take df$PrescriptionEndDate[i] to be the end rather than i-1, because NA does not signify any gap
+      output <- rbind(output, 
+                      setNames(data.frame(df$PrescriptionStartDate[initial_i], df$PrescriptionEndDate[i], df$DrugName_clean[i]), nm = colnames(output))
+      ) 
+    }
+  }
+  return(output)
+}
+
+
+#' gap_merge_per_drug
+#'
+#' @param df 
+#' @param threshold threshold <- 30 # arbitrary threshold for which discontinuity more than threshold is considered a break from the drug use
+#' this function will take the df of EACH drug e.g. all the different periods of methotrexate for the same ReferenceKey and then call two other functions, which are found in 02_functions.R, to yield output. First it identifies gap in the drug prescription, then it merges them based on whether they meet a threshold
+#' @return
+#' @export
+#'
+#' @examples if you want MRE, go to the MRE in functions.R, and then filter to get ONE drug's df
+gap_merge_per_drug <- function(df, threshold = 30) {
+  # function is in 02_functions script, so apply the gap function there
+  df <- gap(df)
+  # create a boolean column to check if more or less than threshold, decide if the gap is significant
+  df <- df %>% 
+    mutate(
+      gap_boolean = case_when(
+        gap_output < threshold ~ FALSE,
+        gap_output > threshold ~ TRUE,
+        TRUE ~ NA
+      )
+    )
+  
+  # merge_dates is from 02_functions.R
+  output <- merge_dates(df) # output of a df of just a few rows of the merged dates
+  return(output)
+}
+
+

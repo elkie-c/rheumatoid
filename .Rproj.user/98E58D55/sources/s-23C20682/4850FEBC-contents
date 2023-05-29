@@ -279,14 +279,11 @@ extract_traj <- function(df) {
 }
 
 
-threshold <- 30 # arbitrary threshold for which discontinuity more than threshold is considered a break from the drug
 df$PrescriptionStartDate <- as.POSIXct(df$PrescriptionStartDate, format = "%Y-%m-%d")
 df$PrescriptionEndDate <- as.POSIXct(df$PrescriptionEndDate, format = "%Y-%m-%d")
 
 # sort the data by PrescriptionStartDate
 df <- df[order(df$PrescriptionStartDate), ]
-
-# merge the drug period if it is continuously prescribed, or if the discontinuity in drug prescription is less than a threshold
 
 df <- df %>% 
   select (PrescriptionStartDate, PrescriptionEndDate, DrugName_clean) %>% 
@@ -294,74 +291,23 @@ df <- df %>%
 
 split_df <- split(df, f = df$DrugName_clean)
 
-df <- prescription_traj %>% filter(ReferenceKey == 10027297) # eg of triple therapy
+# df <- prescription_traj %>% filter(ReferenceKey == 10027297) # eg of triple therapy
+# df <- prescription_traj %>% filter(ReferenceKey == 847624) # e.g. of monotherapy
+
+
+# EG ONLY make sure to convert df into single df
+# df <- df %>% filter(DrugName_clean == "METHOTREXATE")
+
+# Reduce after lapply so gets you the drugs, and the clean period for which it was used!
+drug_period <- Reduce(x = lapply(X = split_df, FUN = gap_merge_per_drug),
+       f = "rbind",
+       accumulate = FALSE)
+
+# because rbind so we lost the order
+drug_period <- drug_period[order(drug_period$PrescriptionStartDate), ]
 
 
 
-# gap_output <- vector("numeric", nrow(df)-1) 
-gap_output <- c(rep(5, nrow(df)-1), NA) # just to init to a different value to see if the code is really working
-# you need the NA later for combining the gap_output with the df, or else would just be missing value if we don't put the NA there
-
-for (i in seq(nrow(df))[-nrow(df)]) { # remove the last item, i.e. the nrow, because i+1 would not exist
-  
-  if (df$PrescriptionEndDate[i] > df$PrescriptionStartDate[i+1]) {# so if the next current end date larger than next start date, already means overlap
-     # of if less than a threshold
-    gap_output[i] <- 0
-  } else {
-    gap_output[i] <-  df$PrescriptionStartDate[i+1] - df$PrescriptionEndDate[i] # the difference would be the gap; so gap on row n, e.g. 30, would mean the break between row n + 1 startdate and row n enddate
-  }
-}
-
-df$gap_output <- gap_output
-
-# create a boolean column to check if more or less than threshold, decide if the gap is significant
-df <- df %>% 
-  mutate(
-    gap_boolean = case_when(
-      gap_output < threshold ~ FALSE,
-      gap_output > threshold ~ TRUE,
-      TRUE ~ NA
-    )
-  )
-
-# loop through each row if FALSE, until a TRUE is reached in gap_boolean, generating a new df from this
-# handle the last row with care
-
-
-# as you do NOT know the length of output since it depends on the number of gaps, we'll have to use rbind which is more clumsy
-output <- data.frame(
-  PrescriptionStartDate = double(),
-  PrescriptionEndDate = double(),
-  DrugName_clean = character()
-)
-
-# sapply(df, typeof)
-
-initial_i <- 1 # so for the first period of time, you assume starting with start date of i = 1 since df is already arranged in ascending order
-for (i in seq(nrow(df))) {
-  
-  if (!is.na(df$gap_boolean[i]) && df$gap_boolean[i] == TRUE) { # if it reaches where there is a gap
-    # so let's say i = 4 you hit a TRUE, the first time you want the period from initial_i i.e. i = 1 StartDate to i = 3 EndDate (because the break is between EndDate of i=3 and startDate of i=4
-    output <- rbind(output, 
-          setNames(data.frame(df$PrescriptionStartDate[initial_i], df$PrescriptionEndDate[i-1], df$DrugName_clean[i]), nm = colnames(output))
-          ) # use setNames to prevent the data.frame rigging the actual names we wanted
-    
-    # whenever you created a new period for the drug, you need to reset the initial_i so it starts at i rather than at initial_i = 1, because at i is where the new beginning of the next period is
-    initial_i <- i
-  } else if (is.na(df$gap_boolean[i])) { # or when is.na() exists, signals we reached the end
-    
-    # unlike if, we take df$PrescriptionEndDate[i] to be the end rather than i-1, because NA does not signify any gap
-    output <- rbind(output, 
-                    setNames(data.frame(df$PrescriptionStartDate[initial_i], df$PrescriptionEndDate[i], df$DrugName_clean[i]), nm = colnames(output))
-    ) 
-  }
-}
-
-output
-
-
-      
-df <- df %>% select(-DrugPeriod)
 
 
 df <- prescription_traj %>% filter(ReferenceKey == 847624) # monotherapy methotrexate
