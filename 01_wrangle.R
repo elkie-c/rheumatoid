@@ -38,6 +38,7 @@ bio_df <- tidyr::fill(bio_df, Ingredient)
 bioo <- bioo_df$Agent
 # manually extracted because the formating of the sheet is a little crude
 cdmard <- c("Sulfasalazine", "Mycophenolate", "Methotrexate", "Leflunomide", "Hydroxychloroquine", "Cyclophosphamide", "Ciclosporin", "Azathioprine", "Apremilast")
+cdmard <- toupper(cdmard)
 
 # clean diagnosis ------------------------------------------------------
 # firstly, only consider pt if diagnosed with RA at least at some point in life
@@ -224,8 +225,6 @@ prescription_sub <- prescription_sub %>% filter(ReferenceKey %in% diagnosis_sub$
 # full_join(prescription_sub, diagnosis_sub[, c("Reference.Key.", "first_ra")], by = c("ReferenceKey" = "Reference.Key."))
 
 
-
-
 # question 2 treatment trajectory -----------------------------------------
 # remove white space and non-breaking space; convert to capital letters
 drugs <- gsub("[[:space:]\u00A0]", "", 
@@ -235,7 +234,7 @@ drugs <- gsub("[[:space:]\u00A0]", "",
 # prescription <- prescription[1:300000, ]
 
 # Clean the drug names using case_when() and str_detect()
-prescription_traj <- prescription %>%
+prescription_traj <- prescription_sub %>%
   mutate(
     DrugName_clean = case_when(
       str_detect(DrugName, str_c(drugs, collapse = "|")) ~ str_extract(DrugName, str_c(drugs, collapse = "|")),
@@ -246,18 +245,153 @@ prescription_traj <- prescription %>%
 # where it is not NA; so we only take the non-NA entries
 prescription_traj <- prescription_traj %>% filter(!is.na(DrugName_clean))
 
+
+tnfi <- bioo_df %>% filter(`Mode of action` == "Tumor Necrosis Factor Inhibitor") %>%  pull(Agent) %>% toupper()
+cd28 <- bioo_df %>% filter(`Mode of action` == "CD28") %>%  pull(Agent) %>% toupper()
+cd20 <- bioo_df %>% filter(`Mode of action` == "CD20") %>%  pull(Agent) %>% toupper()
+il6 <- bioo_df %>% filter(`Mode of action` == "IL-6") %>%  pull(Agent) %>% toupper()
+jaki <- bioo_df %>% filter(`Mode of action` == "Janus kinase inhibitor") %>%  pull(Agent) %>% toupper()
+
+# add column of drug mechanism of action (cDMARD, TNF inhibitor etc) for ease of stratification
+prescription_traj <- prescription_traj %>% 
+  mutate(
+    moa = case_when(
+      str_detect(DrugName_clean, paste(cdmard, collapse = "|")) ~ "cdmard",
+      str_detect(DrugName_clean, paste(tnfi, collapse = "|")) ~ "tnfi",
+      str_detect(DrugName_clean, paste(cd28, collapse = "|")) ~ "cd28",
+      str_detect(DrugName_clean, paste(cd20, collapse = "|")) ~ "cd20",
+      str_detect(DrugName_clean, paste(il6, collapse = "|")) ~ "il6",
+      str_detect(DrugName_clean, paste(jaki, collapse = "|")) ~ "jaki",
+      TRUE ~ NA_character_)
+    ) 
+
+# table(prescription_traj$moa)
+
+prescription_traj %>% split(f = ReferenceKey)
+
+split(prescription_traj, f = prescription_traj$ReferenceKey)
+
+ # monotherapy eg of methotrexate
+
+
+extract_traj <- function(df) {
+  if(length(unique(df$DrugName_clean)) == 1) {
+    # If all entries are the same, return that drug
+    drug <- unique(df$DrugName_clean)
+    return(drug)
+  } else {
+    df %>% arrange(PrescriptionStartDate, PrescriptionEndDate, DrugName_clean)    
+  }
+}
+
+threshold <- 30 # arbitrary threshold for which discontinuity more than threshold is considered a break from the drug
+
+
+df$PrescriptionStartDate <- as.POSIXct(df$PrescriptionStartDate, format = "%Y-%m-%d")
+df$PrescriptionEndDate <- as.POSIXct(df$PrescriptionEndDate, format = "%Y-%m-%d")
+
+# sort the data by PrescriptionStartDate
+df <- df[order(df$PrescriptionStartDate),]
+
+# merge the drug period if it is continuously prescribed, or if the discontinuity in drug prescription is less than a threshold
+
+df <- df %>% 
+  select (PrescriptionStartDate, PrescriptionEndDate, DrugName_clean) %>% 
+  unique()
+
+split_df <- split(df, f = df$DrugName_clean)
+
+df <- split_df[[1]]
+
+# create a new column to track the current drug period
+
+
+# iterate through each row of the dataframe
+
+
+# gap_output <- vector("numeric", nrow(df)-1) 
+gap_output <- c(rep(5, nrow(df)-1), NA) # just to init to a different value to see if the code is really working
+
+# you need the NA later for combining the gap_output with the df, or else would just be missing value
+
+for (i in seq(nrow(df))[-nrow(df)]) { # remove the last item, i.e. the nrow, because i+1 would not exist
+  
+  if (df$PrescriptionEndDate[i] > df$PrescriptionStartDate[i+1]) {# so if the next current end date larger than next start date, already means overlap
+     # of if less than a threshold
+    gap_output[i] <- 0
+  } else {
+    gap_output[i] <-  df$PrescriptionStartDate[i+1] - df$PrescriptionEndDate[i] # the difference would be the gap
+  }
+}
+
+df$gap_output <- gap_output
+
+# create a boolean column to check if more or less than threshold, decide if the gap is significant
+df <- df %>% 
+  mutate(
+    gap_boolean = case_when(
+      gap_output < threshold ~ FALSE,
+      gap_output > threshold ~ TRUE,
+      TRUE ~ NA
+    )
+  )
+
+# loop through each row if FALSE, until a TRUE is reached in gap_boolean, generating a new df from this
+# handle the last row with care
+
+for (i in seq(nrow(df))) {
+  
+  
+  if (df$gap_boolean[i] != FALSE) {
+    print(i)
+  }
+}
+
+# so loop until you reached anything but FALSE, then take that EndDate. (so naturally solves the NA problem)
+# initialise the start date
+# add to the df the START or END DATE
+
+      
+df <- df %>% select(-DrugPeriod)
+
+
+df <- prescription_traj %>% filter(ReferenceKey == 847624) # monotherapy methotrexate
+df <- prescription_traj %>% filter(ReferenceKey == 10027297) # triple
+df <- prescription_traj %>% filter(ReferenceKey == 1093041) # triple
+df <- prescription_traj %>% filter(ReferenceKey == 10701858) # triple
+df <- prescription_traj %>% filter(ReferenceKey == 10226382) # triple
+df <- prescription_traj %>% filter(ReferenceKey == 10069729) # triple
+
+
+
+extract_traj(df)
+
+# table(prescription_traj$DrugName_clean)
+# table(prescription_traj$moa)
+
+
+# create the function to extract the treatment trajectory; function should be able to apply on class of drug, but also later on the moa
+
+# first separate the df by reference key
+
+# monotherapy
+
+# dual therapy; arrange by time and see if given same time or not
+
+
+
+# mini summary to look at the numbers we have for NA, bioo_or_bios
+# prescription_traj %>% filter(!is.na(ingredient)) %>% count(ingredient, bioo_or_bios)
+
+
 # so sometimes dual drug therapy. Not so straightforward like using one drug then switch to another. But even if combine actually is not undoable. 
 
 # data exploration
 prescription_traj %>% filter(ReferenceKey == 20638) # hydroxychloroquine + lefluonomide, never switched
 prescription_traj %>% filter(ReferenceKey == 737169) # hydroxychloroquine + lefuonomide, never switched
-prescription_traj %>% filter(ReferenceKey == 679310) # tocilizumab monotherapy
 prescription %>% filter(ReferenceKey == 679310)  # in case interested to look at other drugs taken by this pt
-prescription_traj %>% filter(ReferenceKey == 666358) # methotrexate
-prescription_traj %>% filter(ReferenceKey == 673928)  # methotrexate
 prescription_traj %>% filter(ReferenceKey == 852239) # methotrexate + lefluonomide, Jan to March, just these two
 prescription_traj %>% filter(ReferenceKey == 847624) # methotrexate only
-prescription_traj %>% filter(ReferenceKey == 673928) # methotrexate only
 
 # looking at those specifically with three drugs (so triple therapy, or had some switching (?))
 prescription_traj
@@ -269,13 +403,12 @@ patients_with_3_or_more_drugs <- prescription_traj %>%
   filter(n_unique_drugs >= 3) %>%
   pull(ReferenceKey)
 
-
 prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[1]) # triple drugs given same time
 prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[2]) # hydroxychloroquine + methotrexate in Jan 16 to March 12th, given in four rows i.e. visited doctor twice, then tofactinib + methotrexate
 prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[3]) # triple drugs given same time (lefounomide, methotrexate, hydroxychloroquine)
 prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[4]) #(same triple)
 prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[6]) # last row called "Keep Record Only" ?
-prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[9]) # last row called "Keep Record Only" ?
+prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[10]) # seemingly hydroxychloroquine + methotrexate → etanercept + methotrexate
 
 output <- "/Users/elsiechan/Desktop/prescription_traj.rds"
 saveRDS(object = prescription_traj, file = output)
