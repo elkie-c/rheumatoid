@@ -271,6 +271,9 @@ prescription_traj_list <- split(prescription_traj, f = prescription_traj$Referen
 # df <- prescription_traj_list[[4]]
 extract_traj(prescription_traj_list[[170]])
 
+
+prescription_traj_list[[180]]
+extract_traj(prescription_traj_list[[180]])
 debug(extract_traj)
 
 lapply(X = prescription_traj_list[160:170], FUN = extract_traj)
@@ -371,9 +374,9 @@ extract_traj <- function(df) {
 
 # by MoA?
 
-# 
+# numbers who defaulted i.e. those whose last record is > 180 days of no FU in the absence of mortality
 
-
+# numbers who died (?)
 
 df <- prescription_traj %>% filter(ReferenceKey == 847624) # monotherapy methotrexate
 df <- prescription_traj %>% filter(ReferenceKey == 10027297) # triple
