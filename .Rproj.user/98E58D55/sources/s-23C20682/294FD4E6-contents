@@ -66,12 +66,15 @@ merge_dates <- function(df) {
     
     if (!is.na(df$gap_boolean[i]) && df$gap_boolean[i] == TRUE) { # if it reaches where there is a gap
       # so let's say i = 4 you hit a TRUE, the first time you want the period from initial_i i.e. i = 1 StartDate to i = 3 EndDate (because the break is between EndDate of i=3 and startDate of i=4
+      # PrescriptionEndDate[i] checked
       output <- rbind(output, 
-                      setNames(data.frame(df$PrescriptionStartDate[initial_i], df$PrescriptionEndDate[i-1], df$DrugName_clean[i]), nm = colnames(output))
+                      setNames(data.frame(df$PrescriptionStartDate[initial_i], df$PrescriptionEndDate[i], df$DrugName_clean[i]), nm = colnames(output))
       ) # use setNames to prevent the data.frame rigging the actual names we wanted
       
-      # whenever you created a new period for the drug, you need to reset the initial_i so it starts at i rather than at initial_i = 1, because at i is where the new beginning of the next period is
-      initial_i <- i
+      # whenever you created a new period for the drug, you need to reset the initial_i so it starts at i+1 rather than at initial_i = 1, because at i is where the new beginning of the next period is; if you start at i instead of i+1, recall we already had the period up to endDate of i, so there would be overlap there
+      initial_i <- i + 1
+      
+      
     } else if (is.na(df$gap_boolean[i])) { # or when is.na() exists, signals we reached the end
       
       # unlike if, we take df$PrescriptionEndDate[i] to be the end rather than i-1, because NA does not signify any gap
@@ -93,14 +96,14 @@ merge_dates <- function(df) {
 #' @export
 #'
 #' @examples if you want MRE, go to the MRE in functions.R, and then filter to get ONE drug's df
-gap_merge_per_drug <- function(df, threshold = 30) {
+gap_merge_per_drug <- function(df, threshold = 15) {
   # function is in 02_functions script, so apply the gap function there
   df <- gap(df)
   # create a boolean column to check if more or less than threshold, decide if the gap is significant
   df <- df %>% 
     mutate(
       gap_boolean = case_when(
-        gap_output < threshold ~ FALSE,
+        gap_output <= threshold ~ FALSE,
         gap_output > threshold ~ TRUE,
         TRUE ~ NA
       )
@@ -110,5 +113,56 @@ gap_merge_per_drug <- function(df, threshold = 30) {
   output <- merge_dates(df) # output of a df of just a few rows of the merged dates
   return(output)
 }
+# 
+# undebug(gap_merge_per_drug)
+# debug(merge_dates)
+
+#' decompose dates
+#'
+#' @param drug_period 
+#' @param dates 
+#' this function decompose dates. So give it a row drug_period (PrescriptionStartDate, PrescriptionEndDate, DrugName_clean) and a list of dates, then it can decompose the PrescriptionStart and PrescriptionEndDate into the interval periods based on the list of dates. e.g. if Start is Day 10, End is Day 100, list of dates is Day 20, Day 50, you will get a df of Day 10 - 20, Day 20 - 50, Day 20 - 100. 
+#' @return
+#' @export
+#'
+#' @examples
+# drug_period <- data.frame(
+#   PrescriptionStartDate = as.POSIXct(c("2013-07-25", "2018-12-19", "2018-12-19")),
+#   PrescriptionEndDate = as.POSIXct(c("2022-05-24", "2021-05-04", "2022-05-24")),
+#   DrugName_clean = c("METHOTREXATE", "HYDROXYCHLOROQUINE", "LEFLUNOMIDE")
+# )
+# dates <- c("2013-07-25", "2018-12-19", "2022-05-24", "2021-05-04")
+# dates <- as.Date(unique(dates))
+# 
+# decompose_dates(row = drug_period[1,], dates)
+# decompose_dates(row = drug_period[2,], dates)
+# decompose_dates(row = drug_period[3,], dates)
+
+decompose_dates <- function(row, dates) {
+  # obtain the dates which are within the wanted period, using boolean; returns error for atomic start date?
+  filtered_dates <- dates[dates %within% lubridate::interval(row$PrescriptionStartDate, row$PrescriptionEndDate)]
+  
+  # filtered_dates <- dates[dates %within% lubridate::interval(row["PrescriptionStartDate"], row["PrescriptionEndDate"])]
+  
+  # rank in ascending order
+  ordered_dates <- filtered_dates[order(filtered_dates)]
+  
+  if (length(filtered_dates) == 1) {
+    return(row) # because if you went into the else, would encounter problem with -1 since we only have one row. Since if the filtered dates only one, e.g. if the drug was given for one day, or very short period and does not overlap any other dates, it just returns the same row
+  } else {
+    # Create a data frame with the drug periods that emerge from this ranked date
+    df <-
+      data.frame(
+        PrescriptionStartDate = ordered_dates[1:length(ordered_dates) - 1],
+        PrescriptionEndDate = ordered_dates[2:length(ordered_dates)],
+        DrugName_clean = rep(row$DrugName_clean, length(ordered_dates) -
+                               1)
+      )
+    return(df)
+  }
+}
 
 
+# df <- data.frame(PrescriptionStartDate = c("2013-07-25", "2018-12-19", "2018-12-19"),
+#                  PrescriptionEndDate = c("2022-05-24", "2021-05-04", "2022-05-24"),
+#                  DrugName_clean = c("METHOTREXATE", "HYDROXYCHLOROQUINE", "LEFLUNOMIDE"))

@@ -265,48 +265,113 @@ prescription_traj <- prescription_traj %>%
 
 
 # prescription_traj_list <- prescription_traj_list[1:50]
-df <- prescription_traj_list[[1]]
+
+prescription_traj_list <- split(prescription_traj, f = prescription_traj$ReferenceKey)
+
+# df <- prescription_traj_list[[4]]
+extract_traj(prescription_traj_list[[170]])
+
+debug(extract_traj)
+
+lapply(X = prescription_traj_list[160:170], FUN = extract_traj)
+
+lapply(X = prescription_traj_list[1:200], FUN = extract_traj)
+
+lapply(X = prescription_traj_list[1:1000], FUN = extract_traj)
+
+length(prescription_traj_list)
+
 
 extract_traj <- function(df) {
-  # deal with the simple case of monotherapy first; saves the trouble of looping etc
-  if(length(unique(df$DrugName_clean)) == 1) {
-    # If all entries are the same, return that drug
-    drug <- unique(df$DrugName_clean)
-    return(drug)
-  } else {
-    
+  df$PrescriptionStartDate <-
+    as.POSIXct(df$PrescriptionStartDate, format = "%Y-%m-%d")
+  df$PrescriptionEndDate <-
+    as.POSIXct(df$PrescriptionEndDate, format = "%Y-%m-%d")
+  
+  # sort the data by PrescriptionStartDate
+  df <- df[order(df$PrescriptionStartDate),]
+  
+  df <- df %>%
+    select (PrescriptionStartDate, PrescriptionEndDate, DrugName_clean) %>%
+    unique()
+  
+  split_df <- split(df, f = df$DrugName_clean)
+  
+  # df <- prescription_traj %>% filter(ReferenceKey == 10027297) # eg of triple therapy
+  # df <- prescription_traj %>% filter(ReferenceKey == 847624) # e.g. of monotherapy
+  
+  
+  # EG ONLY make sure to convert df into single df
+  # df <- df %>% filter(DrugName_clean == "METHOTREXATE")
+  
+  # Reduce after lapply so gets you the drugs, and the clean period for which it was used!
+  drug_period <-
+    Reduce(
+      x = lapply(X = split_df, FUN = gap_merge_per_drug),
+      f = "rbind",
+      accumulate = FALSE
+    )
+  
+  
+  # theoretically, if you had monotherapy (which may have more than one periods), you could just output here, and give a duration. But I decided to let it run the rest of the code if it does not take up too much time, and outputs data in the desirable format
+  
+  # because rbind so we lost the order; rank again
+  drug_period <-
+    drug_period[order(drug_period$PrescriptionStartDate),]
+  
+  
+  # pull out all the dates
+  dates <-
+    drug_period %>% select(PrescriptionStartDate, PrescriptionEndDate) %>% unlist()
+  dates <- as.POSIXct(dates) # or else not recognizable format
+  dates <-
+    as.Date(unique(unlist(dates))) # just in dates format, removing the time format; so no longer a df, not just vector of dates
+  
+  
+  
+  # did not use apply as that leads to issues with atomic vector, not the same as for loop easier
+  # create the empty output for our next step
+  output <- data.frame(
+    PrescriptionStartDate = as.Date(character()),
+    PrescriptionEndDate = as.Date(character()),
+    DrugName_clean = character(),
+    stringsAsFactors = FALSE
+  )
+  
+  # call decompose_dates function from 02_functions.R
+  # loop to repeat this on all rows
+  for (i in seq(nrow(drug_period))) {
+    temp_df <- decompose_dates(drug_period[i,], dates)
+    output <- rbind(temp_df, output)
   }
+  
+  output <- output %>%
+    group_by(PrescriptionStartDate, PrescriptionEndDate) %>%
+    summarise(DrugName_clean = paste(DrugName_clean, collapse = "+"), .groups = 'drop') %>% # .groups just to silence the message, probably redundant here tho the code
+    ungroup() %>%
+    arrange(PrescriptionStartDate)
+  
+  output$duration <-
+    output$PrescriptionEndDate - output$PrescriptionStartDate
+  
+  # so e.g. if allegedly, two drug regimen for 2 days, before switching to 3 drug regimen → this is quite insignificant, then can abandon the shorter duration regimen (more downstream rather than edit the dates earlier); not done yet, depends
+  
+  # sometimes you get a situation with allegedly a drug was prescribed for one day. Which is not actually a switch in drug regimen, but a drug prescribed for an additional day. e.g. ReferenceKey = 100031. So we figure out a way to clean that by filter using duration BUT some doctor can give many ONE-DAY infliximab, so we would have unintentionally removed that
+  # output <- output %>% filter(duration > 7)
+  
+  # apply again this gap function, just to figure out the gap between the changes in regimen; maybe useful later if we consider some gaps too short to be a so-called "switch" in regimen
+  output <- gap(output) 
+  return(output)
 }
 
 
-df$PrescriptionStartDate <- as.POSIXct(df$PrescriptionStartDate, format = "%Y-%m-%d")
-df$PrescriptionEndDate <- as.POSIXct(df$PrescriptionEndDate, format = "%Y-%m-%d")
+# number of days before first change in regimen
 
-# sort the data by PrescriptionStartDate
-df <- df[order(df$PrescriptionStartDate), ]
+# number of days before ADDING one drug
 
-df <- df %>% 
-  select (PrescriptionStartDate, PrescriptionEndDate, DrugName_clean) %>% 
-  unique()
+# by MoA?
 
-split_df <- split(df, f = df$DrugName_clean)
-
-# df <- prescription_traj %>% filter(ReferenceKey == 10027297) # eg of triple therapy
-# df <- prescription_traj %>% filter(ReferenceKey == 847624) # e.g. of monotherapy
-
-
-# EG ONLY make sure to convert df into single df
-# df <- df %>% filter(DrugName_clean == "METHOTREXATE")
-
-# Reduce after lapply so gets you the drugs, and the clean period for which it was used!
-drug_period <- Reduce(x = lapply(X = split_df, FUN = gap_merge_per_drug),
-       f = "rbind",
-       accumulate = FALSE)
-
-# because rbind so we lost the order
-drug_period <- drug_period[order(drug_period$PrescriptionStartDate), ]
-
-
+# 
 
 
 
