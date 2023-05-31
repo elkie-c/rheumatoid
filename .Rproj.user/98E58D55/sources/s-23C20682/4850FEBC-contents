@@ -7,7 +7,8 @@ librarian::shelf(haven,
                  ggpubr,
                  mgsub, #for multiple substitutions
                  readxl, # read the excel drug list
-                 hrbrthemes)
+                 hrbrthemes, 
+                 ggalluvial # treatment trajectory sankey)
 
 # setwd("/Users/elsiechan/Documents/GitHub/rheumatoid")
 
@@ -368,6 +369,33 @@ extract_traj <- function(df) {
 }
 
 
+
+# visualise treatment trajectory ------------------------------------------
+
+titanic_wide <- data.frame(Titanic)
+
+ggplot(data = titanic_wide,
+       aes(
+         axis1 = Class,
+         axis2 = Sex,
+         axis3 = Age,
+         y = Freq
+       )) +
+  scale_x_discrete(limits = c("Class", "Sex", "Age"),
+                   expand = c(.2, .05)) +
+  xlab("Demographic") +
+  geom_alluvium(aes(fill = Survived)) +
+  geom_stratum() +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  theme_minimal() +
+  ggtitle(
+    "passengers on the maiden voyage of the Titanic",
+    "stratified by demographics and survival"
+  )
+
+
+
+
 # number of days before first change in regimen
 
 # number of days before ADDING one drug
@@ -407,17 +435,6 @@ extract_traj(df)
 # prescription_traj %>% filter(!is.na(ingredient)) %>% count(ingredient, bioo_or_bios)
 
 
-# so sometimes dual drug therapy. Not so straightforward like using one drug then switch to another. But even if combine actually is not undoable. 
-
-# data exploration
-prescription_traj %>% filter(ReferenceKey == 20638) # hydroxychloroquine + lefluonomide, never switched
-prescription_traj %>% filter(ReferenceKey == 737169) # hydroxychloroquine + lefuonomide, never switched
-prescription %>% filter(ReferenceKey == 679310)  # in case interested to look at other drugs taken by this pt
-prescription_traj %>% filter(ReferenceKey == 852239) # methotrexate + lefluonomide, Jan to March, just these two
-prescription_traj %>% filter(ReferenceKey == 847624) # methotrexate only
-
-# looking at those specifically with three drugs (so triple therapy, or had some switching (?))
-prescription_traj
 
 # Count the number of unique drugs for each patient and filter for patients with 3 or more unique drugs
 patients_with_3_or_more_drugs <- prescription_traj %>%
