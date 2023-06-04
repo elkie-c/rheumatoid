@@ -1,0 +1,452 @@
+# title: "coveragecal.R"
+# author: "Aadhitthya"
+# date: "1/2/2021"
+# description: Functions for coverage collection and correction
+
+# loading packages --------------------------------------------------------
+if (!require("librarian")) install.packages("librarian")
+
+if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+
+if (!requireNamespace("Biobase", quietly = TRUE)) BiocManager::install("Biobase") # note BiocManager install! Don't forget that
+
+librarian::shelf(# Bioconductor Packages
+                 GenomicRanges,
+                 BSgenome.Hsapiens.UCSC.hg19)
+
+
+# loading sample granges and genome ---------------------------------------
+gran <- readRDS("/Users/elsiechan/Documents/GitHub/toyexamples_robjects/temp/samp_10Million_SLX-15332_D707-D505.mrkdup.BL.filtered_1unit_fragmentwise.rds")
+
+gr <- granges(gran)
+
+genome <- BSgenome.Hsapiens.UCSC.hg19
+
+# remove metadata just for the purpose of understanding the code
+gr <- gr[1:40]
+
+# create one long fragment that overlaps more than on region to see what happens
+samp <- GRanges(
+  seqnames = c(
+    "chr1",
+    "chr9",
+    "chr1",
+    "chr1",
+    "chr1"
+  ),
+  strand = "*",
+  ranges = IRanges(
+    start = c(15540, 141111108, 16321, 48100, 16180),
+    width = c(400, 400, 400, 40000, 50)
+  )
+)
+
+gr <- c(samp, gr)
+
+# configs -----------------------------------------------------------------
+# taken from Aadhi's config file
+nucpos_rda <- "LYM_NP"
+rmsk_rda <- "rmsk"
+
+# for reproducibility should use relative path
+nucrda <- "./public_data/lymphocyte_Nucmap_sorted.rda"
+
+# rdalistfile location
+rdalistfile <- "./public_data/rdalist_wthminimal.txt"
+
+# minor, major value extracted from Feng Cui, et.al 2010
+minor <- c(5:8, 15:18, 26:29, 37:40, 47:50, 57:60, 67:70)
+major <-  c(10:14, 21:23, 32:34, 42:45, 52:55, 62:65)
+nucpos_len <- 141
+
+
+# samcov function - collects coverage of a grange for a particular genome----
+#'
+#' @param genome - reference genome in BS.genome object
+#' @param gr - grange object
+#'
+#' @return cov- coverage from gr object
+#' @export
+#'
+#' @examples
+# calculates coverage given grange
+
+samcov <- function(genome, gr) {
+  # setting to the genome we have chosen, for extended pieces to be cropped out double insure since already aligned
+  seqlevels(gr) <- seqlevels(genome) 
+  seqlengths(gr) <- seqlengths(genome)
+  cov <-  coverage(gr) # Rle object
+  # explanation for coverage object: https://www.biostars.org/p/9500257/ 
+  return(cov)
+}
+
+
+# inival - function helps in initailizing columns in grange object-----
+#'
+#' @param inival - initial value
+#' @param pos - position to update
+#' @param val - value to update
+#' @param nm - name to store
+#' @param obj - object to update; has to be grange object
+#'
+#' @return obj - updated object; 
+#' @export
+#'
+#' @examples
+#' 
+# add another column to the grange object with the overlap
+# if you have initiating value e.g. 0, and position. Would give you the position row of the grange which have the ranges that have been overlapped by the gran. i.e. val
+var_ini <- function(inival, pos, val, nm, obj) {
+  
+  for (i in 1:length(inival)) {
+    # obj could be grange or fragment. First create 0s or NA for all of them
+    var = rep(inival[[i]], length(obj))
+    
+    # only change the positions for the given value
+    var[pos[[i]]] = val[[i]]
+    
+    # dynamic upload. New column. 
+    # ln means length
+    ln = length(names(mcols(obj))) + 1
+    mcols(obj)[ln] = var
+    
+    # whatever name you want to call it, in list format
+    names(mcols(obj))[ln] = nm[[i]] 
+  }
+  return(obj)
+}
+
+
+# generalcal - function for performing counts and gc correction for reg_bedpe and grange object-----
+#' @param reg_bedpe - grange of regions
+#' @param gr - grange of bamfile
+#' @param nm - name of the regbed_pe object, as this becomes the heading of the mcol of grange
+#'
+#' @return reg_bedpe - updated with count and percentage of coverage information
+#' @return ovlap - overlap object created between reg_bedpe and gran
+#' @return reg_bedpe - updated with count and percentage of coverage information
+#' @export
+#'
+#' @examples
+# bedpe paired-end file
+# regions in the chromosomes
+# look for coverage in our bam file the externally supplied regions 
+# tissue data of those cancer types, the ATAC sequencing
+# DNAse region in different cell lines
+# DNAse point to line number. Master ID how many cell lines do they actually see.
+# multiple regions. All of them are grange objects
+# pan cancer is multiple types
+# random_open accessibility, just completely random region
+# laminB1 senescence precursor, signature e.g. higher in breast cancer
+# switchDb - public databases, transcription start sites
+# combined_rmskcp different kind of repeat regions, long short etc
+# EncodeSegmentation of the genome, how the genome will be like. Intronic, or exonic. 
+
+generalcal <- function(reg_bedpe, gran, nm) {
+  # code for overlapping and collecting the counts and avg length
+  
+# append counts column to both reg_bedpe and gr ---------------------------
+  # gives the integers of number of overlaps of reg_bedpe region
+  reg_bedpe$counts <- countOverlaps(reg_bedpe, gr)
+  
+  
+  # first set to counts; and then change the name to get the more specific name. Makes more sense than the dangerous 'assign' function
+  gr$gr_counts <- countOverlaps(gr, reg_bedpe)
+  names(mcols(gr))[which(names(mcols(gr)) == "gr_counts")] <- paste0(nm, "_counts")
+
+  
+# calculate percentage of overlap -----------------------------------------
+  # currently mappability has no variation does it need to be corrected??
+  ovlap <- findOverlaps(reg_bedpe, gr)
+  
+  # pintersect and Pairs get you the set of granges that overlapped; then use width to calculate the length of the overlapping grange
+  ovlap_width <-  width(pintersect(Pairs(reg_bedpe, gr, hits = ovlap)))
+  
+  # mean overlapping percentage over reg_bedpe
+  # using aggregate allows you to average the overlap when multiple reads hit the same bedpe region
+  ovlap_bedpe <- aggregate(overlap_width / width(reg_bedpe)[queryHits(ovlap)], # percentage of overlap over the reg_bedpe region
+                      by = list(queryHits(ovlap)),
+                      FUN = "mean")
+  
+  # more meaningful when denominator is gr, since each fragment in grange rarely overlap more than one region in reg_bedpe
+  ovlap_gr <- aggregate(overlap_width / width(gr)[subjectHits(ovlap)],
+                      by = list(subjectHits(ovlap)),
+                      FUN = "mean")
+  
+  # would return the df of nrows = length(unique(subjectHits(ovlap))) because that is the numberof regions that hit the query
+  
+  # variable initiation function. 
+  # reg_bedpe <- var_ini(list(0),
+  #                     list(ovlap_bedpe[, 1]),
+  #                     list(ovlap_bedpe[, 2]),
+  #                     list("regpercov"),
+  #                     reg_bedpe)
+  
+  # initialise to 0
+  reg_bedpe$regpercov <- 0
+  # set values where no equal to zero; this time won't have to copy the entire object
+  reg_bedpe$regpercov[ovlap_bedpe[,1]] <- ovlap_bedpe[, 2]
+  
+  
+  gr$fragpercov <- 0
+  gr$fragpercov[ovlap_gr[,1]] <- ovlap_gr[, 2]
+  names(mcols(gr))[which(names(mcols(gr)) == "fragpercov")] <- paste0(nm, "_fragpercov")
+  
+  # # one will be the counts and the other percentage of the overlap
+  # gr <- var_ini(
+  #   list(0, 0),
+  #   list(1:length(gr), ovlap_gr[, 1]),
+  #   list(countOverlaps(gr, reg_bedpe), ovlap_gr[, 2]),
+  #   list(paste0(nm, "_count"), paste0(nm, "_fragpercov")),
+  #   gr
+  # )
+  
+  return(list(reg_bedpe, ovlap, gr))
+  # each grange object will have 2 updated columns which are the count and percentage of coverage
+}
+
+
+
+# regionbasedcov - function extracts the coverage/region, counts/regions,avg frag.length, % of coverage----------
+#'
+#' @param cov - coverage of bamfile
+#' @param gr - bamfile grange
+#' @param reg_bedpe - region grange
+#' @param isnuc - logical for is it a nucleosome position
+#' @param nm - name 
+#' @param sbnm -subfilename
+#' @param ovlap - overlap object created between reg_bedpe and gran
+#' @param sel - selected row from range based on sub-population
+#'
+#' @return gr - updated gr object
+#' @export
+#'
+#' @examples
+regionbasedcov <-
+  function(cov,
+           gran,
+           reg_bedpe,
+           isnuc,
+           nm,
+           sbnm,
+           ovlap,
+           sel) {
+    # think about including the perfragcov
+    if (isnuc) {
+      print("before calling isnuc")
+      gr = nucpos_info(gran, reg_bedpe, sbnm)
+    }
+    else{
+      aa = unique(subjectHits(ovlap)[which(queryHits(ovlap) %in% sel)])
+      gr = var_ini(list(0), list(aa), list(rep(1, length(aa))), list(paste0(sbnm, "_pre")), gr)
+    }
+    return(gr)
+  }
+
+
+
+# nucpos_info- function helps in detecting fragment start and end compared to nucleosome start and end------------------
+#'
+#' @param frags - grange object of bamfile
+#' @param reg_bedpe - grange object of the nucleosome position
+#' @param nm - name
+#'
+#' @return frags - updated grange object
+#' @export
+#'
+#' @examples
+nucpos_info <- function(frags, reg_bedpe, nm) {
+  mdpnt = round(nucpos_len / 2) + 1
+  # considering both before and after midpoint
+  all_minor = c(minor, (mdpnt + minor))
+  all_major = c(major, (mdpnt + major))
+  # those regions which doesnt fall inside minor and major groove
+  none = c(1:nucpos_len)[which(!(1:nucpos_len %in% c(all_minor, all_major)))]
+  # collecting regions which overlap with the fragments
+  overlap = findOverlaps(frags, reg_bedpe)
+  wdth = width(pintersect(Pairs(frags, reg_bedpe, hits = overlap)))
+  # setting unique id and aggregating across nucposition overlapping on same fragment. handles di and tri nucleosomal
+  aggend = aggregate(end(reg_bedpe)[subjectHits(overlap)], list(queryHits(overlap)), function(x)
+    max(x))
+  aggst = aggregate(start(reg_bedpe)[subjectHits(overlap)], list(queryHits(overlap)), function(x)
+    min(x))
+  aggov = aggregate(wdth, list(queryHits(overlap)), function(x)
+    sum(x))
+  aggstmid = aggregate((start(reg_bedpe)[subjectHits(overlap)]) + mdpnt, list(queryHits(overlap)), function(x)
+    min(x))
+  aggendmid = aggregate((start(reg_bedpe)[subjectHits(overlap)]) + mdpnt, list(queryHits(overlap)), function(x)
+    max(x))
+  # setting values in fields
+
+# nucpos_info- function helps in detecting fragment start and end  --------
+
+  
+  # in some cases. Nucleosome position give a nucleosome start end. If you don't find anything, some fragment will fall outside. If initialised to zero.
+  # on top of the count, check fragment start with respect to the midpoint of the nucleosome making zero a viable value, hence need NA. Major and minor grooves. How it is packed is usually, minor groove sticking in or out. Groove is collected from the midpoint of the nucleosome position.
+  frags = var_ini(
+    list(NA, NA, NA, NA),
+    list(aggst[, 1], aggend[, 1], aggstmid[, 1], aggendmid[, 1], aggov[, 1]),
+    list(aggst[, 2], aggend[, 2], aggstmid[, 2], aggendmid[, 2], aggov[, 2]),
+    list("nucstart", "nucend", "nucstmid", "nucendmid", "nucovlap"),
+    frags
+  )
+  # think y am I adding mdpnt here ??????? usually we take from midpoint only
+  frags = var_ini(
+    list(0, 0, 0, 0),
+    list(1:length(frags), 1:length(frags), aggov[, 1], aggov[, 1]),
+    list(
+      start(frags) - frags$nucstmid,
+      end(frags) - frags$nucendmid,
+      aggov[, 2] / (frags$nucend - frags$nucstart)[aggov[, 1]],
+      aggov[, 2] / width(frags)[aggov[, 1]]
+    ),
+    list("fragstnuc", "fragednuc", "nucov", "fragcov"),
+    frags
+  )
+  frags$stgroove = "none"
+  frags$endgroove = "none"
+  frags$stgroove = ifelse(frags$fragstnuc %in% all_major, "major", frags$stgroove)
+  frags$stgroove = ifelse(frags$fragstnuc %in% all_minor, "minor", frags$stgroove)
+  frags$stgroove = ifelse(frags$fragstnuc > nucpos_len |
+                            is.na(frags$fragstnuc),
+                          "out",
+                          frags$stgroove)
+  frags$endgroove = ifelse(frags$fragednuc %in% all_major, "major", frags$endgroove)
+  frags$endgroove = ifelse(frags$fragednuc %in% all_minor, "minor", frags$endgroove)
+  frags$endgroove = ifelse(frags$fragednuc > nucpos_len |
+                             is.na(frags$fragednuc),
+                           "out",
+                           frags$endgroove)
+  # may be include density here
+  frags$stgroove = factor(frags$stgroove, levels = c("major", "minor", "none", "out"))
+  frags$endgroove = factor(frags$endgroove, levels = c("major", "minor", "none", "out"))
+  return(frags)
+}
+
+# regionbasedanal - conduct analysis on specified regions using grange object of bamfile and grange object of the regions----------
+#'
+#' @param gr - grange object of bamfile
+#'
+#' @return gr - grange object of bamfile
+#' @export
+#'
+#' @examples
+regionbasedanal <- function(gran, rdalistfile){ # takes the grange from last time, main caller
+  
+  # calculates coverage and cropping of the regions by seqlengths
+  cov <-  samcov(genome, gr)
+  
+  # given in the config, stating where the rda files are found, if they have any accessory files etc
+  # rdalistfile here to change to your local directory (given in config file)
+  # downloaded outside, e.g. cover chromatin positions, cleaned them up and stored as rda files
+  # DNAse files are more troublsome. 
+  # genome-segmentation (intronic, extronic)
+  rdalist <- read.table(rdalistfile,
+                       sep = "\t",
+                       header = FALSE,
+                       as.is = TRUE)
+  
+  for (row_num in seq(nrow(rdalist))) {
+    # Unlike rds, which can be initialised to a variable name, rda can only be loaded. But they are all stored into one name. 
+    print(row_num)
+    
+## load the rda grange object ----------------------------------------------
+    # rda file can store whatever you want with the variable name, stored grange object created for each and everyone. They are all stored under the same name. You can keep on calling the same reg_bedpe. Just like a variable in a function. It would overwrite the previous
+    full_path <- rdalist[row_num, 1]
+    
+    # grep only part after the slash - so the file name
+    relative_path <-
+      regmatches(full_path,
+                 regexpr(
+                   pattern = "[^/]+$",
+                   text = full_path,
+                   perl = TRUE
+                 ))
+    
+    # path to grange relative to current directory of script
+    relative_path <- file.path("./public_data", relative_path)
+    
+    load(relative_path)
+
+
+# # load name and check if region is nucleosome, or rmsk (repeated regions)  ---------------------------------------------
+    nm <- rdalist[row_num, 2] # second column contains name
+    
+    # nucleosome only in lymphoblast cell lines, very little information outside
+    # rmsk are in the config files, so outputs T or F to see if they are repeat regions
+    is_nuc <- (rdalist[row_num, 2] == nucpos_rda)
+    is_com <- (rdalist[row_num, 2] == rmsk_rda)
+   
+
+# calls generalcal --------------------------------------------------------
+    c(reg_bedpe, ovlap, gr) %<-% generalcal(reg_bedpe, gran, nm)
+    
+    
+  }
+
+  
+  for (rda in 1:nrow(rdalist)) {
+  # cleared -----------------------------------------------------------------
+    print(rda)
+    load(rdalist[rda, 1]) # column 1 is location
+    # second column is the name
+    nm = rdalist[rda, 2]
+    isnuc = (rdalist[rda, 2] == nucpos_rda)
+    
+    # nuclear position rda have the file path and whether it is nucl
+    # whatever region given is standard length currently.
+    # repeat region
+    iscom = (rdalist[rda, 2] == rmsk_rda)
+    
+
+  # uncleared ---------------------------------------------------------------
+    # many objects inside a list. Initialised. Initialised the three objects instead of three lines of code
+    c(reg_bedpe, ovlap, gr) %<-% generalcal(reg_bedpe, gran, nm)
+    
+    # if NA means you won't have to further subset the region. Referring to the third column there
+    # depending on which rda object was taken
+    if (is.na(rdalist[row, 3])) {
+      print("before regionbasedcov")
+      gr <- regionbasedcov(cov,
+                          gran,
+                          reg_bedpe,
+                          isnuc,
+                          nm,
+                          nm,
+                          ovlap,
+                          1:length(reg_bedpe))
+    } else{
+      col = which(names(mcols(reg_bedpe)) == rdalist[rda, 3])
+      category = unique(unlist(strsplit(as.character(
+        as.data.frame(mcols(reg_bedpe)[col])[, 1]
+      ), ",")))
+      # bedfile with category in the bedfile itself
+      if (is.na(rdalist[rda, 4])) {
+        for (i in category) {
+          sel = grep(i, as.character(as.data.frame(mcols(reg_bedpe)[col])[, 1]))
+          librange = reg_bedpe[sel]
+          sbnm = paste0(nm, "_", i)
+          gr = regionbasedcov(cov, gran, librange, isnuc, nm, sbnm, ovlap, sel)
+        }
+      } else{
+        sources = read.table(rdalist[rda, 4], sep = "\t", header = FALSE)
+        col = rdalist[rda, 5]
+        category = unique(sources[, col])
+        for (i in category) {
+          vals = which(sources[, col] == i) - 1
+          rows = c()
+          for (j in vals) {
+            rows = c(rows, grep(j, as.character(as.data.frame(
+              mcols(reg_bedpe)[col]
+            )[, 1])))
+          }
+          librange = reg_bedpe[rows,]
+          sbnm = paste0(nm, "_", i)
+          gr = regionbasedcov(cov, gran, librange, isnuc, nm, sbnm, ovlap, rows)
+        }
+      }
+    }
+    rm(list = "reg_bedpe") # just to make sure, even though would be overwritten
+  }
+  return(gr)
+}

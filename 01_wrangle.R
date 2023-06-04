@@ -7,7 +7,8 @@ librarian::shelf(haven,
                  ggpubr,
                  mgsub, #for multiple substitutions
                  readxl, # read the excel drug list
-                 hrbrthemes)
+                 hrbrthemes, 
+                 ggalluvial # treatment trajectory sankey)
 
 # setwd("/Users/elsiechan/Documents/GitHub/rheumatoid")
 
@@ -39,6 +40,93 @@ bioo <- bioo_df$Agent
 # manually extracted because the formating of the sheet is a little crude
 cdmard <- c("Sulfasalazine", "Mycophenolate", "Methotrexate", "Leflunomide", "Hydroxychloroquine", "Cyclophosphamide", "Ciclosporin", "Azathioprine", "Apremilast")
 cdmard <- toupper(cdmard)
+
+
+# read excel sheet for disease cp -----------------------------------------
+weight_df <- read_excel('MMI.xlsx')
+weight_df$Assigned_weight <- as.numeric(weight_df$Assigned_weight)
+
+
+# clean weight_df (clean ICD codes by expanding hyphen and x)---------------------------------------------------------
+# remove empty space
+weight_df$ICD9_unref <- str_replace_all(weight_df$ICD9_unref, "\\s+", "")
+weight_df$DiseaseEntity_26029213 <- str_replace_all(weight_df$DiseaseEntity_26029213, "\\s+", "")
+
+# these two functions written, first to expand out the hyphen, then to expand out the x
+
+# if there is hyphen, expand the label to create multiple copies of the inclusive numbers, with .x
+expand_hyphen <- function(icd) {
+  # Check if the input contains a hyphen
+  if (grepl("-", icd)) {
+    # Split the input by the hyphen
+    range <- strsplit(icd, "-")[[1]]
+    
+    # Extract the numeric portion of the values
+    start_val <- as.numeric(gsub("[^0-9.]", "", range[1]))
+    end_val <- as.numeric(gsub("[^0-9.]", "", range[2]))
+    
+    # Create a sequence of values from start_val to end_val
+    vals <- seq(start_val, end_val, by = 1)
+    
+    # add back the .x so later the steps can create the multipels of it
+    vals <- paste0(vals, ".x")
+    
+    return(vals)
+  } else {
+    return(icd) # so if hyphen is not grepped, just give the original icd
+  }
+}
+
+expand_x <- function(icd) {
+  # Check if the input contains a hyphen
+  if (grepl("x", icd)) {
+    # Extract the numeric portion of the input
+    val <- gsub("[^0-9.]", "", icd)
+    
+    # Create a sequence of values from val to val+0.9
+    # val <- "428.1."
+    
+    # paste to get all the values from 0 to 9
+    vals <- paste(val, seq(0, 9), sep = "")
+    
+    return(vals)
+  } else {
+    return(icd)
+  }
+}
+
+weight_df$ICD9_clean <- NA
+
+for (i in seq(nrow(weight_df))) {
+  icd_char <- weight_df[i, "ICD9_unref"] %>% pull()
+  
+  # split by comma to get a character vector for each icd_char
+  icd_char <- strsplit(icd_char, ",")[[1]]
+  
+  expand_hyphen_output <- character(0)
+  
+  for (icd in icd_char) {
+    # icd_char[icd_char == icd] <- paste0(expand_hyphen(icd)) # update each index
+    expand_hyphen_output <- c(expand_hyphen_output, expand_hyphen(icd))
+  }
+  
+  expand_x_output <- character(0)
+  for (icd in expand_hyphen_output) {
+    # icd_char[icd_char == icd] <- paste0(expand_hyphen(icd)) # update each index
+    expand_x_output <- c(expand_x_output, expand_x(icd))
+  }
+  
+  weight_df[i, "ICD9_clean"] <- paste(expand_x_output, collapse = ",") # so set the NA, ICD9_clean to this clean value; collapse turns it into one string
+}
+
+
+# add these two numbers just to simulate it, MRE
+# icd_char <- paste0(weight_df[6, 2] %>% pull(), ",277.x,", "800")
+# icd_char <- strsplit(x, ",")[[1]]
+
+
+
+
 
 # clean diagnosis ------------------------------------------------------
 # firstly, only consider pt if diagnosed with RA at least at some point in life
@@ -144,7 +232,54 @@ diagnosis_sub <- diagnosis_sub %>%
   filter(!Reference.Key. %in% unwanted_ra)
 
 
-# dplyr::arrange(diagnosis_sub, Reference.Key.)
+# get weighting score -----------------------------------------------------
+# weight_df
+# diagnosis_sub
+diagnosis_sub %>% select(All.Diagnosis.Description..HAMDCT..)
+diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."]
+
+diagnosis_sub$ICD <- regmatches(
+  x = diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."],
+  m = regexpr(
+    pattern = "(?<=\\().*(?=:)",
+    # after ( but not including, \ the \ character, not including the colon
+    # (?<=\\()\\d+.*(?=:)   # this is the older version which didn't work if ( followed by E or V alphabet in the ICD code
+    text = diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."],
+    perl = TRUE))
+
+# diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."][grep(pattern = "(?<=\\().*(?=:)", x = diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."], perl = TRUE, invert = TRUE)]
+
+# add before_ra column, boolean for entry whether it was before the first_ra diagnosis
+diagnosis_sub <- diagnosis_sub %>% mutate(before_ra = if_else(Reference.Date. < first_ra, T, F))
+
+diagnosis_sub
+weight_df
+
+# for each patient, get the character vector of the ICD9 first
+
+# for each item, use str_detect or grep, get all the relevant row in the weight_df df
+
+# then cumulatively sum the assigned_weight
+
+
+
+# Calculate the total weight for each patient on each date
+total_weight <- joined_df %>%
+  group_by(Reference.Key., Reference.Date.) %>%
+  distinct(All.Diagnosis.Code..ICD9.., Assigned_weight) %>%
+  left_join(weight_df, by = c("All.Diagnosis.Code..ICD9.." = "ICD9_unref")) %>%
+  summarise(total_weight = sum(Assigned_weight))
+
+
+# get the weighting score for the chronic conditions BEFORE diagnosing first_ra
+
+# get the weighting score for the chronic conditions AFTER diagnosing first_ra
+
+
+
+# get weighting score -----------------------------------------------------
+
+
 
 
 # clean prescription df--------------------------------------------------------------
@@ -368,6 +503,33 @@ extract_traj <- function(df) {
 }
 
 
+
+# visualise treatment trajectory ------------------------------------------
+
+titanic_wide <- data.frame(Titanic)
+
+ggplot(data = titanic_wide,
+       aes(
+         axis1 = Class,
+         axis2 = Sex,
+         axis3 = Age,
+         y = Freq
+       )) +
+  scale_x_discrete(limits = c("Class", "Sex", "Age"),
+                   expand = c(.2, .05)) +
+  xlab("Demographic") +
+  geom_alluvium(aes(fill = Survived)) +
+  geom_stratum() +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  theme_minimal() +
+  ggtitle(
+    "passengers on the maiden voyage of the Titanic",
+    "stratified by demographics and survival"
+  )
+
+
+
+
 # number of days before first change in regimen
 
 # number of days before ADDING one drug
@@ -407,17 +569,6 @@ extract_traj(df)
 # prescription_traj %>% filter(!is.na(ingredient)) %>% count(ingredient, bioo_or_bios)
 
 
-# so sometimes dual drug therapy. Not so straightforward like using one drug then switch to another. But even if combine actually is not undoable. 
-
-# data exploration
-prescription_traj %>% filter(ReferenceKey == 20638) # hydroxychloroquine + lefluonomide, never switched
-prescription_traj %>% filter(ReferenceKey == 737169) # hydroxychloroquine + lefuonomide, never switched
-prescription %>% filter(ReferenceKey == 679310)  # in case interested to look at other drugs taken by this pt
-prescription_traj %>% filter(ReferenceKey == 852239) # methotrexate + lefluonomide, Jan to March, just these two
-prescription_traj %>% filter(ReferenceKey == 847624) # methotrexate only
-
-# looking at those specifically with three drugs (so triple therapy, or had some switching (?))
-prescription_traj
 
 # Count the number of unique drugs for each patient and filter for patients with 3 or more unique drugs
 patients_with_3_or_more_drugs <- prescription_traj %>%
