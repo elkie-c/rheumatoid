@@ -9,11 +9,13 @@ librarian::shelf(haven,
                  readxl, # read the excel drug list
                  hrbrthemes, 
                  ggalluvial # treatment trajectory sankey)
+)
 
 # setwd("/Users/elsiechan/Documents/GitHub/rheumatoid")
 
 # replace with your path to kuan's folder of rds
 path <- "/Users/elsiechan/Desktop/kuan_folder"
+
 setwd(path)
 
 death <- readRDS("Death.RDS")
@@ -119,7 +121,7 @@ for (i in seq(nrow(weight_df))) {
   weight_df[i, "ICD9_clean"] <- paste(expand_x_output, collapse = ",") # so set the NA, ICD9_clean to this clean value; collapse turns it into one string
 }
 
-
+# weight_df
 # add these two numbers just to simulate it, MRE
 # icd_char <- paste0(weight_df[6, 2] %>% pull(), ",277.x,", "800")
 # icd_char <- strsplit(x, ",")[[1]]
@@ -133,13 +135,24 @@ for (i in seq(nrow(weight_df))) {
 # the following line shows that other than rheumatoid arthritis, you also have rheumatoid nodule arthritis
 ra_vector <- unique(grep(
   pattern =
-    "rheumatoid|Rheumatoid|[Jj]uv.*rh|714",
+    "714\\.[0128]",
   x = diagnosis$All.Diagnosis.Description..HAMDCT..,
   value = TRUE
 ))
 
+# old ra vector, includes those antepartum RA, maternal care etc
+# ra_vector <- unique(grep(
+#   pattern =
+#     "rheumatoid|Rheumatoid|[Jj]uv.*rh|714",
+#   x = diagnosis$All.Diagnosis.Description..HAMDCT..,
+#   value = TRUE
+# ))
+
 # exclude this strange item called Screen-rheumatoid
-ra_vector <- grep(pattern = "^(?!.*Screen)", x = ra_vector, value = TRUE, perl = TRUE)
+# ra_vector <- grep(pattern = "^(?!.*Screen)", x = ra_vector, value = TRUE, perl = TRUE)
+
+# select out the seronegative, glomerulonephritis
+ra_vector <- grep(pattern = "glomerulonephritis|seronegative", x = ra_vector, perl = TRUE, value = TRUE, invert = TRUE)
 
 # there are some strange diagnosis with rheum, and for the benefit of doubt (and discussion), they are as follows: now the decision is whether you would like to keep these? Could modify the expression above to do that
 # Find the strings that contain "rheum" but not in in ra_vector (which we will use for analysis)
@@ -165,11 +178,11 @@ earliest_ra <- diagnosis[diagnosis$All.Diagnosis.Description..HAMDCT.. %in% ra_v
 # diagnosis[diagnosis$Reference.Key. == 5872,]
 
 # update the table with a column on the earliest RA diagnosis if any
-# turns out all the pt given already diagnosed with RA duh!
 diagnosis_sub <- dplyr::left_join(x = diagnosis,
                                   y = earliest_ra,
-                                  by = "Reference.Key.") %>%
-  filter(Reference.Date. <= first_ra) # lesser or equal to so we keep the RA columns and do not exclude them
+                                  by = "Reference.Key.") %>%  # before next line will see some NA dates for those not diagnosed with our definition of RA
+  filter(!is.na(first_ra)) # to remove those who do not have our definition of RA
+  # filter(Reference.Date. <= first_ra) # lesser or equal to so we keep the RA columns and do not exclude them
 
 
 # obtain a list of all biologics indications
@@ -220,11 +233,22 @@ pattern = "099\\.3|
 19[0-5]|
 20[0-9]") # you need double backslashes in R, as \ is also escape character in R itself
 
+# obtain the reference key of those with ANY match with the other_biologic indications
 unwanted_ra <- diagnosis_sub[other_biologic, "Reference.Key."]
 
 # how many pts did we exclude this way?
-# at first, we have 24099 unique pt with those RA conditions, cancer or not, inclusive.
-# unique(diagnosis_sub$Reference.Key.)
+print(paste0("At first, we have ", length(unique(diagnosis_sub$Reference.Key.)), " number of patients who fulfil our definition of RA"))
+
+print(paste0("Then, we removed patients who were diagnosed with conditions that indicate the use of biologics at ANY point in their life. Now, there are ", length(unique(unwanted_ra)), " patients who meet this criteria. Example of their ID include the following:"))
+
+print(paste0(unique(unwanted_ra)[1:5], collapse = ", "))
+
+print(paste0(
+  "So the number of patients who remain in the analysis are ",
+  length(unique(diagnosis_sub$Reference.Key.)) - length(unique(unwanted_ra))
+)
+)
+
 # then, unwanted_ra gives us 194 in the following line
 # length(unique(unwanted_ra))
 # so we have eliminated 194 of those RA pt with some kind of indications for biologic BEFORE diagnosis of RA. But later as I found out even though they do have these indications, none of those pt contributed to our analysis, likely because they were not given biologics, or they were given biologics or an unknown type i.e. biosimilar or biooriginator
@@ -241,45 +265,107 @@ diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."]
 diagnosis_sub$ICD <- regmatches(
   x = diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."],
   m = regexpr(
-    pattern = "(?<=\\().*(?=:)",
-    # after ( but not including, \ the \ character, not including the colon
+    pattern = "(?<=\\()[\\d\\.EV]+(?=:)",
+    # after ( but not including, \ the \ character, not including the colon; [^\\(]*$ to take the last occurrence of the open bracket, don't want anymore brackets like the case of (lymph node) instead of (ICD)
+    # EV because some ICD begins with that followed by the bracket
     # (?<=\\()\\d+.*(?=:)   # this is the older version which didn't work if ( followed by E or V alphabet in the ICD code
     text = diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."],
     perl = TRUE))
 
-# diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."][grep(pattern = "(?<=\\().*(?=:)", x = diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."], perl = TRUE, invert = TRUE)]
+# diagnosis_sub[899, ] # example with the bracket lymph node
+# for debugging to see where regex failed to match
+# diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."][grep(pattern = "(?<=\\()[\\d\\.EV]+(?=:)", x = diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."], perl = TRUE, invert = TRUE)]
+
+
+# extra steps to check after removing the 0 is indeed the intended effect; later turned out is useless as 250.00 is not the same as 250.0
+# diagnosis_sub$ICD_no_0 <- gsub(pattern = ".00", x = diagnosis_sub$ICD, replacement = ".0", fixed = TRUE)
+# diagnosis_sub %>% filter(ICD != ICD_no_0) %>% select(ICD, ICD_no_0, All.Diagnosis.Description..HAMDCT..)
+
+
 
 # add before_ra column, boolean for entry whether it was before the first_ra diagnosis
 diagnosis_sub <- diagnosis_sub %>% mutate(before_ra = if_else(Reference.Date. < first_ra, T, F))
 
-diagnosis_sub
-weight_df
+
 
 # for each patient, get the character vector of the ICD9 first
+pt_icds_all <- diagnosis_sub %>%
+  group_by(Reference.Key.) %>%
+  summarise(ICD = paste(unique(ICD), collapse = ","))
 
-# for each item, use str_detect or grep, get all the relevant row in the weight_df df
+# output dataframe of the same reference number but NA for score column
+scores_df <- data.frame(pt_icds_all[, "Reference.Key."], score = NA, score_before_ra = NA)
 
-# then cumulatively sum the assigned_weight
+# for loop looping each row to extract the ICDs; then create the regex out of the ICD vector; for each of them grep the weight_df to see if matches any row; cumulatively sum the assigned weight
+
+for (i in seq(nrow(pt_icds_all))) {
+
+  # create the regex by replacing the , by |, OR. No ICD have 4 digits so is ok, no need to worry about 300 matching 3001 (4 digits before a dot)
+  icds_regex <- pt_icds_all[i,"ICD"] %>% pull() %>% gsub(pattern = ",", replacement ="|", fixed = TRUE) %>% gsub(pattern = ".", replacement ="\\.", fixed = TRUE) 
+  
+  # for each item, use grep, get all the relevant row in the weight_df df
+  matching_rows <- grepl(x = weight_df$ICD9_clean,
+                         pattern = icds_regex)
+  
+  
+  
+  
+  if (any(matching_rows)) {
+    # then cumulatively sum the assigned_weight
+    score <- weight_df[matching_rows, ] %>% summarise(score = sum(Assigned_weight)) %>% pull()
+  } else {
+    score <-  0
+  }
+  
+  # then that which the reference key at i matches the output, update the score
+  scores_df[which(scores_df$Reference.Key. == pt_icds_all$Reference.Key.[i]), "score"] <- score
+  
+}
 
 
+# for debugging, making sure when the grep returns an entry actually the same icd we are loooking for 
+# grep(pattern = "250", x = weight_df$ICD9_clean, value = TRUE)
+# grep(pattern = "414", x = weight_df$ICD9_clean, value = TRUE)
+# grep(pattern = "715", x = weight_df$ICD9_clean, value = TRUE)
+# icds_regex
 
-# Calculate the total weight for each patient on each date
-total_weight <- joined_df %>%
-  group_by(Reference.Key., Reference.Date.) %>%
-  distinct(All.Diagnosis.Code..ICD9.., Assigned_weight) %>%
-  left_join(weight_df, by = c("All.Diagnosis.Code..ICD9.." = "ICD9_unref")) %>%
-  summarise(total_weight = sum(Assigned_weight))
 
 
 # get the weighting score for the chronic conditions BEFORE diagnosing first_ra
+# if TRUE, then use ICD value. If FALSE, just use NA value
+pt_icds_before_ra <- diagnosis_sub %>%
+  mutate(
+    ICD_conditioned = case_when(
+      before_ra == TRUE ~ ICD,
+      before_ra == FALSE ~ "NA")
+  ) %>% 
+  group_by(Reference.Key.) %>%
+  summarise(ICD_conditioned = paste(unique(ICD_conditioned), collapse = ","))
 
-# get the weighting score for the chronic conditions AFTER diagnosing first_ra
+# same as last time so for explanation just see above
+for (i in seq(nrow(pt_icds_before_ra))) {
+  
+  icds_regex <-
+    pt_icds_before_ra[i, "ICD_conditioned"] %>% pull() %>% gsub(pattern = ",",
+                                                    replacement = "|",
+                                                    fixed = TRUE) %>% gsub(pattern = ".",
+                                                                           replacement = "\\.",
+                                                                           fixed = TRUE) 
+  
+  matching_rows <- grepl(x = weight_df$ICD9_clean,
+                         pattern = icds_regex)
+  
+  if (any(matching_rows)) {
+    score_before_ra <- weight_df[matching_rows, ] %>% summarise(score = sum(Assigned_weight)) %>% pull()
+  } else {
+    score_before_ra <-  0
+  }
+  
+  # then that which the reference key at i matches the output, update the score
+  scores_df[which(scores_df$Reference.Key. == pt_icds_before_ra$Reference.Key.[i]), "score_before_ra"] <- score_before_ra
+}
 
-
-
-# get weighting score -----------------------------------------------------
-
-
+scores_df <- scores_df[order(as.numeric(scores_df$Reference.Key.)),]
 
 
 # clean prescription df--------------------------------------------------------------

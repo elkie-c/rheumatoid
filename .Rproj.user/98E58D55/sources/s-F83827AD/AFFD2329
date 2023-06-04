@@ -1,24 +1,24 @@
 {
-    "id": "B904C282",
+    "id": "AFFD2329",
     "path": null,
     "project_path": null,
     "type": "r_dataframe",
     "hash": "0",
     "contents": "",
     "dirty": false,
-    "created": 1685853675945.0,
+    "created": 1685866339263.0,
     "source_on_save": false,
-    "relative_order": 4,
+    "relative_order": 2,
     "properties": {
         "expression": "weight_df",
         "caption": "weight_df",
         "totalObservations": 40,
         "displayedObservations": 40,
         "variables": 4,
-        "cacheKey": "3F3D4620",
+        "cacheKey": "90E547C7",
         "object": "weight_df",
         "environment": "",
-        "contentUrl": "grid_resource/gridviewer.html?env=&obj=weight_df&cache_key=3F3D4620&max_cols=50",
+        "contentUrl": "grid_resource/gridviewer.html?env=&obj=weight_df&cache_key=90E547C7&max_cols=50",
         "preview": 0,
         "source_window_id": "",
         "Source": "Source"
@@ -28,7 +28,7 @@
     "encoding": "",
     "collab_server": "",
     "source_window": "",
-    "last_content_update": 1685853675945,
+    "last_content_update": 1685866339263,
     "read_only": false,
     "read_only_alternatives": []
 }
