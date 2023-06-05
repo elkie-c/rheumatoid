@@ -307,9 +307,6 @@ for (i in seq(nrow(pt_icds_all))) {
   matching_rows <- grepl(x = weight_df$ICD9_clean,
                          pattern = icds_regex)
   
-  
-  
-  
   if (any(matching_rows)) {
     # then cumulatively sum the assigned_weight
     score <- weight_df[matching_rows, ] %>% summarise(score = sum(Assigned_weight)) %>% pull()
@@ -405,6 +402,10 @@ prescription_sub <- prescription %>%
 bioo_string <- bio_df %>% filter(Type == "Bio-originator") %>% select(`Brand name`) %>% pull()
 bios_string <- bio_df %>% filter(Type == "Biosimilar") %>% select(`Brand name`) %>% pull()
 
+# remove some gaps
+bioo_string <- gsub(pattern = "[[:space:]\u00A0]", replacement = "", x = bioo_string)
+bios_string <- gsub(pattern = "[[:space:]\u00A0]", replacement = "", x = bios_string)
+
 # now, create the bio column (which says if it is biosimilar or biooriginator)
 prescription_sub <- prescription_sub %>% 
   mutate(
@@ -430,21 +431,19 @@ prescription_sub <- prescription_sub %>%
       str_detect(DrugName, "RIXATHON") ~ "RIXATHON",
       str_detect(DrugName, "TRUXIMA") ~ "TRUXIMA",
       TRUE ~ NA_character_)
-  ) # note even though a lot of brands, just for sake of completeness; our data only has HUMIRA, REMICADE, and REMSIMA
+  ) # note even though a lot of brands, just for sake of completeness; our data has most ly HUMIRA, REMICADE, and REMSIMA; then a few more like MABTHERA, RIXATHON, TRUXIMA, AMGEVITA, HYRIMOZ
 
-# to prove the point our data only has HUMIRA, REMICADE, REMSIMA
-# grep(pattern = paste(bio_df %>% select(`Brand name`) %>% pull(), collapse = "|"), x = unique(prescription$DrugName), value = TRUE)
 
-# question 1: Uptake of b/tsDMARDs (stratified by mode of action and bio-originator / biosimilars) by year (2010-2022) among patients with rheumatoid arthritis (RA);--------
+# to prove the point our data only has a few of them
+# pattern <- paste(bio_df %>% select(`Brand name`) %>% pull(), collapse = "|")
+# pattern <- gsub(pattern = "[[:space:]\u00A0]", replacement = "", x = pattern)
+# grep(pattern, x = unique(prescription$DrugName), value = TRUE)
+
+# question 2 treatment trajectory -----------------------------------------
+
 # now we have a prescription table with cleaned information. Now we need to merge the diagnosis table to ONLY get the pts that meet our criteria, and look at the descriptive statistics of their uptake
 prescription_sub <- prescription_sub %>% filter(ReferenceKey %in% diagnosis_sub$Reference.Key.) # essential step
 
-# very strangely, pts in prescription_sub is merely a subset of pts in diagnosis_sub. It makes sense the diagnosis_sub is more, because there are pt diagnosed with RA and not given biologics. However, I am confused the pts in prescrpition_sub is entirely a subset. Because I would expect there to be pt prescribed with biologics, but have nothing to do with RA. Or pt prescribed with biologics for autoimmune conditions before RA. But later I realised they may have been prescribed with unlabelled biologics anyways, or simply not given biologics
-
-# full_join(prescription_sub, diagnosis_sub[, c("Reference.Key.", "first_ra")], by = c("ReferenceKey" = "Reference.Key."))
-
-
-# question 2 treatment trajectory -----------------------------------------
 # remove white space and non-breaking space; convert to capital letters
 drugs <- gsub("[[:space:]\u00A0]", "", 
               toupper(c(cdmard, bioo, bio_df$`Brand name`, unique(bio_df$Ingredient))))
@@ -483,6 +482,78 @@ prescription_traj <- prescription_traj %>%
       str_detect(DrugName_clean, paste(jaki, collapse = "|")) ~ "jaki",
       TRUE ~ NA_character_)
     ) 
+
+
+# question 1: Uptake of b/tsDMARDs (stratified by mode of action and bio-originator / biosimilars) by year (2010-2022) among patients with rheumatoid arthritis (RA);
+
+# number of pts in our subsetted data is 16708
+length(unique(prescription_traj$ReferenceKey))
+
+#look at the counts 
+df <- prescription_traj %>% 
+select(ReferenceKey, bioo_or_bios, DrugName_clean) %>% 
+  distinct(ReferenceKey, DrugName_clean, bioo_or_bios) %>% 
+  group_by(DrugName_clean, bioo_or_bios) %>% 
+  summarise(count = n())
+
+print(df, n = 27)
+
+output <- "/Users/elsiechan/Desktop/prescription_traj.rds"
+saveRDS(object = prescription_traj, file = output)
+
+# showing kuan the eg where we can't tell the bioo_or_bios
+# prescription_sub %>% filter(!is.na(ingredient))
+
+
+# barplot which shows uptake by bioo_or_bios
+# Create a subset of the data frame with only the columns we need
+df_subset <- prescription_traj %>% select(DispensingDate = "DispensingDate(yyyy-mm-dd)", ReferenceKey, bioo_or_bios = "bioo_or_bios", ingredient = "ingredient")
+
+# Convert DispensingDate to Date format
+df_subset$DispensingDate <- ymd(df_subset$DispensingDate)
+
+# Extract year from DispensingDate
+df_subset$Year <- year(df_subset$DispensingDate)
+
+# Count the number of unique patients per year, bioo_or_bios, and ingredient
+df_counts <- df_subset %>%
+  filter(!is.na(bioo_or_bios) & !is.na(ingredient)) %>%
+  distinct(Year, ReferenceKey, bioo_or_bios, ingredient) %>%
+  group_by(Year, bioo_or_bios, ingredient) %>%
+  summarise(Count = n())
+
+print(df_counts, n = 32)
+
+
+ggplot(df_counts, aes(x = Year, y = Count, fill = bioo_or_bios)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  scale_fill_brewer(palette = "Set1") +
+  xlab("Year") +
+  ylab("Count") +
+  ggtitle("Frequency of Biooriginator or Biosimilar Uptake by Year and Ingredient") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = guide_legend(title = "Ingredient and Biooriginator/Biosimilar")) +
+  scale_x_continuous(breaks = unique(df_counts$Year), labels = unique(df_counts$Year))
+
+ggplot(df_counts, aes(x = Year, y = Count, fill = interaction(bioo_or_bios, ingredient))) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  scale_fill_brewer(palette = "Set1") +
+  xlab("Year") +
+  ylab("Count") +
+  ggtitle("Frequency of Biooriginator or Biosimilar Uptake by Year and Ingredient") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = guide_legend(title = "Ingredient and Biooriginator/Biosimilar")) +
+  scale_x_continuous(breaks = unique(df_counts$Year), labels = unique(df_counts$Year))
+
+ggplot(df_counts, aes(x = Year, y = Count, fill = bioo_or_bios, ingredient)) +
+  geom_bar(stat = "identity") +
+  scale_fill_brewer(palette = "Set1") +
+  xlab("Year") +
+  ylab("Count") +
+  ggtitle("Frequency of Biooriginator or Biosimilar Uptake by Year and Ingredient") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = guide_legend(title = "Ingredient and Biooriginator/Biosimilar")) +
+  scale_x_continuous(breaks = unique(df_counts$Year), labels = unique(df_counts$Year))
 
 
 # prescription_traj_list <- prescription_traj_list[1:50]
@@ -590,6 +661,15 @@ extract_traj <- function(df) {
 
 
 
+
+# days before the use of b/tsDMARD (we don't worry about csDMARD most of the time)
+
+# won't need proportion of pts to require 2 or 3 drugs at any point since we decided to group all csdmards into one category
+                                  
+# still include infliximab regardless of administration
+                                  
+# group only csdmard since less clinical and economically impactful, but not b/tsDMARDS as clinical efficacy and price are moderately different
+
 # visualise treatment trajectory ------------------------------------------
 
 titanic_wide <- data.frame(Titanic)
@@ -670,8 +750,6 @@ prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[4]) #
 prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[6]) # last row called "Keep Record Only" ?
 prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[10]) # seemingly hydroxychloroquine + methotrexate → etanercept + methotrexate
 
-output <- "/Users/elsiechan/Desktop/prescription_traj.rds"
-saveRDS(object = prescription_traj, file = output)
 
 
 View(prescription_traj)
