@@ -484,6 +484,7 @@ prescription_traj <- prescription_traj %>%
     ) 
 
 
+
 # question 1: Uptake of b/tsDMARDs (stratified by mode of action and bio-originator / biosimilars) by year (2010-2022) among patients with rheumatoid arthritis (RA);
 
 # number of pts in our subsetted data is 16708
