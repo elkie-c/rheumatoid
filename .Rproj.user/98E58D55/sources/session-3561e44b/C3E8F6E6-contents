@@ -8,7 +8,8 @@ librarian::shelf(haven,
                  mgsub, #for multiple substitutions
                  readxl, # read the excel drug list
                  hrbrthemes, 
-                 ggalluvial # treatment trajectory sankey)
+                 ggalluvial, # treatment trajectory sankey)
+                 plotly # heatmaps
 )
 
 # setwd("/Users/elsiechan/Documents/GitHub/rheumatoid")
@@ -790,6 +791,99 @@ table(merged_df$DrugName_clean)
 # saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/merged_df_moanamed.rds")
 
 merged_df
+
+df <- data.frame(
+  start = as.Date(c("2018-08-03", "2019-03-11", "2019-04-09", "2019-05-06", "2021-06-13", "2021-09-27")),
+  end = as.Date(c("2019-03-11", "2019-04-09", "2019-05-06", "2021-06-13", "2021-09-27", "2023-01-29")),
+  drug = c("cdmard", "cdmard+jaki", "cdmard", "cdmard+jaki", "jaki", "cdmard+jaki"),
+  patient = rep(1, 6)
+)
+
+fig <- plot_ly(df, x = ~start, y = ~patient, color = ~drug,
+               type = 'scatter', mode = 'markers+lines',
+               line = list(width = 10)) %>%
+  add_trace(x = ~end) %>%
+  layout(yaxis = list(title = ""),
+         xaxis = list(title = ""),
+         title = list(text = "<b>Treatment Trajectories of Patients</b>",
+                      font = list(size = 20)),
+         hovermode = 'closest')
+
+fig
+
+
+
+# gantt's chart attempt
+# Create a data frame with start, end, drug, and patient columns
+df <- merged_df %>%
+  head(100) %>% 
+  mutate(patient = as.factor(ReferenceKey),
+         end = ifelse(is.na(gap_output), PrescriptionEndDate, PrescriptionStartDate + gap_output)) %>%
+  select(start = PrescriptionStartDate, end, drug = DrugName_clean, patient)
+
+unique(df$drug)
+unique(merged_df$DrugName_clean)
+
+# Define a color palette for the drugs from below
+# Create the Gantt chart
+fig <- plot_ly(df, x = ~start, y = ~patient, color = ~drug, colors = drug_colors,
+               type = 'box',
+               line = list(width = 2)) %>%
+  # add_trace(x = ~end) %>% # do not need a line connecting to the end
+  layout(yaxis = list(title = "",
+                              tickfont = list(size = 8)),
+         xaxis = list(title = "Year",
+                      tickmode = "linear",
+                      tickfont = list(size = 2),
+                      tick0 = lubridate::year(min(df$start)), # start with year rather than actual date
+                      dtick = 3),
+         title = list(text = "<b>Treatment Trajectories of Patients</b>",
+                      font = list(size = 15)),
+         hovermode = 'y')
+fig
+
+min(df$start)
+
+df %>% filter(patient == 1005302)
+
+# Define lighter colors for single drugs
+single_colors <- c("cdmard" = "#aec7e8", 
+                   "cd28" = "#c7e9c0", 
+                   "jaki" = "#fbb4b9", 
+                   "il6" = "#ffbb78", 
+                   "tnfi" = "#bcbd22",
+                   "cd20" = "#dbdb8d")
+
+# Define darker colors for drug combinations
+combo_colors <- c("cdmard+jaki" = "#54278f", 
+                  "cdmard+tnfi" = "#8c2d04", 
+                  "cd28+cdmard" = "#1f77b4", 
+                  "cdmard+il6" = "#7f7f7f", 
+                  "cdmard+il6+jaki" = "#2ca02c", 
+                  "cd28+cdmard+il6" = "#9467bd", 
+                  "cdmard+jaki+tnfi" = "#7f2704", 
+                  "cd20+cdmard" = "#e7cb94", 
+                  "cd28+il6" = "#8c564b", 
+                  "cd28+jaki" = "#e377c2", 
+                  "cdmard+il6+tnfi" = "#d62728", 
+                  "il6+tnfi" = "#bcbd22", 
+                  "jaki+tnfi" = "#e377c2", 
+                  "cd28+cdmard+tnfi" = "#ff7f0e", 
+                  "cd20+cdmard+jaki" = "#c7b299", 
+                  "cd20+cdmard+tnfi" = "#ff7f0e", 
+                  "cd20+jaki" = "#e377c2", 
+                  "cd28+tnfi" = "#ff7f0e", 
+                  "il6+jaki" = "#e377c2", 
+                  "cd28+cdmard+jaki" = "#9467bd", 
+                  "cd20+tnfi" = "#ff7f0e", 
+                  "cd20+cdmard+il6" = "#c7b299", 
+                  "cd20+cd28+cdmard" = "#9467bd")
+
+# Combine the two palettes
+drug_colors <- c(single_colors, combo_colors)
+
+# add the gap in which there are no treatment, and a light colour to represent that
+# sort data to put them in reasonable order e.g. of complexity starting with monotherapy
 
 # filter based on duration and consider removing if less than a threshold
 
