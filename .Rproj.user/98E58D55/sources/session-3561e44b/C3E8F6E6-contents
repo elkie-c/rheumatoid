@@ -816,30 +816,55 @@ fig
 # gantt's chart attempt
 # Create a data frame with start, end, drug, and patient columns
 df <- merged_df %>%
-  head(100) %>% 
+  head(1000) %>% 
   mutate(patient = as.factor(ReferenceKey),
-         end = ifelse(is.na(gap_output), PrescriptionEndDate, PrescriptionStartDate + gap_output)) %>%
+         end = PrescriptionEndDate) %>%  # ifelse would give unintended bridges
+         # end = ifelse(is.na(gap_output), 
+         #              PrescriptionEndDate, 
+         #              PrescriptionStartDate + gap_output)) %>%
   select(start = PrescriptionStartDate, end, drug = DrugName_clean, patient)
+
+
 
 unique(df$drug)
 unique(merged_df$DrugName_clean)
+print(df, n = 100)
 
 # Define a color palette for the drugs from below
 # Create the Gantt chart
-fig <- plot_ly(df, x = ~start, y = ~patient, color = ~drug, colors = drug_colors,
+fig <- plot_ly(df, x = ~start, 
+               y = ~patient,
+               color = ~drug, 
+               colors = drug_colors,
+               # mode = 'none',
                type = 'box',
-               line = list(width = 2)) %>%
+               # boxpoints = "outliers", # display only the most extreme data points
+               boxmean = FALSE, # do not display the mean line
+               boxpoints = FALSE, # so it does not display those random points
+               line = list(width = 0), # remove the lines around the box
+               marker = list(size = 0)) %>%
+  
   # add_trace(x = ~end) %>% # do not need a line connecting to the end
   layout(yaxis = list(title = "",
-                              tickfont = list(size = 8)),
-         xaxis = list(title = "Year",
-                      tickmode = "linear",
-                      tickfont = list(size = 2),
-                      tick0 = lubridate::year(min(df$start)), # start with year rather than actual date
-                      dtick = 3),
+                              tickfont = list(size = 6)),
+         
+         xaxis = list(
+           title = "Year",
+           # tickmode = "linear", # somehow the tickmode forbidden years from spreading out
+           tickfont = list(size = 6),
+           tick0 = lubridate::year(min(df$start)),
+           tickvals = seq(lubridate::year(min(df$start)), lubridate::year(max(df$start)), by = 1),
+           dtick = 3,
+           tickangle = 0,
+           # no rotation
+           tickformat = "%Y",
+           domain = c(0.1, 0.9)
+         ), 
+         
          title = list(text = "<b>Treatment Trajectories of Patients</b>",
                       font = list(size = 15)),
          hovermode = 'y')
+
 fig
 
 min(df$start)
