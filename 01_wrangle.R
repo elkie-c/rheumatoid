@@ -790,33 +790,30 @@ table(merged_df$DrugName_clean)
 # saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/merged_df_drugnamed.rds")
 # saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/merged_df_moanamed.rds")
 
-merged_df
 
-df <- data.frame(
-  start = as.Date(c("2018-08-03", "2019-03-11", "2019-04-09", "2019-05-06", "2021-06-13", "2021-09-27")),
-  end = as.Date(c("2019-03-11", "2019-04-09", "2019-05-06", "2021-06-13", "2021-09-27", "2023-01-29")),
-  drug = c("cdmard", "cdmard+jaki", "cdmard", "cdmard+jaki", "jaki", "cdmard+jaki"),
-  patient = rep(1, 6)
-)
+# label pt with 1st, 2nd line tx ------------------------------------------
 
-fig <- plot_ly(df, x = ~start, y = ~patient, color = ~drug,
-               type = 'scatter', mode = 'markers+lines',
-               line = list(width = 10)) %>%
-  add_trace(x = ~end) %>%
-  layout(yaxis = list(title = ""),
-         xaxis = list(title = ""),
-         title = list(text = "<b>Treatment Trajectories of Patients</b>",
-                      font = list(size = 20)),
-         hovermode = 'closest')
+# use mutate and case_when a hierarchy starting with more 3rd line
+# filter to only include when tx duration > 30 days (for continuous period) to be considered significant
 
-fig
+
+# ensure those combinations cover merged_df$DrugName_clean combinations
+unique(merged_df$DrugName_clean)
+
+
+# get a label per pt (useful for all forms of plotting including stratifying the weighting score later
+
+# calculate number of days until first use of b/tsDMARD
+
+# after grouping by which line of tx, then by duration of descending order
 
 
 
-# gantt's chart attempt
+
+# gantt's chart for treatment trajectory ----------------------------------
 # Create a data frame with start, end, drug, and patient columns
 df <- merged_df %>%
-  head(1000) %>% 
+  head(10000) %>% 
   mutate(patient = as.factor(ReferenceKey),
          end = PrescriptionEndDate) %>%  # ifelse would give unintended bridges
          # end = ifelse(is.na(gap_output), 
@@ -903,6 +900,41 @@ combo_colors <- c("cdmard+jaki" = "#54278f",
                   "cd20+tnfi" = "#ff7f0e", 
                   "cd20+cdmard+il6" = "#c7b299", 
                   "cd20+cd28+cdmard" = "#9467bd")
+
+
+# darker overall
+# Define lighter colors for single drugs
+single_colors <- c("cdmard" = "#6d8db8",
+                   "cd28" = "#8fbf8b",
+                   "jaki" = "#db7e84",
+                   "il6" = "#d68a53",
+                   "tnfi" = "#7e7a1c",
+                   "cd20" = "#b8b87d")
+
+# Define darker colors for drug combinations
+combo_colors <- c("cdmard+jaki" = "#3c1a61",
+                  "cdmard+tnfi" = "#5a1c03",
+                  "cd28+cdmard" = "#145b8d",
+                  "cdmard+il6" = "#525252",
+                  "cdmard+il6+jaki" = "#1a5b1a",
+                  "cd28+cdmard+il6" = "#5e4187",
+                  "cdmard+jaki+tnfi" = "#3c1403",
+                  "cd20+cdmard" = "#8b7a3d",
+                  "cd28+il6" = "#5b3f35",
+                  "cd28+jaki" = "#9c5e88",
+                  "cdmard+il6+tnfi" = "#912525",
+                  "il6+tnfi" = "#7e7a1c",
+                  "jaki+tnfi" = "#9c5e88",
+                  "cd28+cdmard+tnfi" = "#a64c00",
+                  "cd20+cdmard+jaki" = "#8c7c68",
+                  "cd20+cdmard+tnfi" = "#a64c00",
+                  "cd20+jaki" = "#9c5e88",
+                  "cd28+tnfi" = "#a64c00",
+                  "il6+jaki" = "#9c5e88",
+                  "cd28+cdmard+jaki" = "#5e4187",
+                  "cd20+tnfi" = "#a64c00",
+                  "cd20+cdmard+il6" = "#8c7c68",
+                  "cd20+cd28+cdmard" = "#5e4187")
 
 # Combine the two palettes
 drug_colors <- c(single_colors, combo_colors)
