@@ -1,0 +1,14 @@
+library(lubridate)
+library(plotly)
+
+drug_colors <- c(
+  cdmard = "#FF7F00",
+  "cdmard+jaki" = "#4D4D4D",
+  "cdmard+il6" = "#377EB8",
+  il6 = "#E41A1C"
+)
+
+
+
+
+

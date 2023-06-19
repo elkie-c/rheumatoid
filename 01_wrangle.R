@@ -794,18 +794,21 @@ table(merged_df$DrugName_clean)
 # label pt with 1st, 2nd line tx ------------------------------------------
 
 # use mutate and case_when a hierarchy starting with more 3rd line
+
+
+
+# get a label per pt whether first, second, or third-line tx used (useful for all forms of plotting including stratifying the weighting score later
+
+# calculate days before the use of b/tsDMARD (we don't worry about csDMARD most of the time)
+
+
+
 # filter to only include when tx duration > 30 days (for continuous period) to be considered significant
 
 
-# ensure those combinations cover merged_df$DrugName_clean combinations
-unique(merged_df$DrugName_clean)
-
-
-# get a label per pt (useful for all forms of plotting including stratifying the weighting score later
-
-# calculate number of days until first use of b/tsDMARD
-
-# after grouping by which line of tx, then by duration of descending order
+# batched ideas as follows:
+# filter based on duration and consider removing if less than a threshold
+# apply again gap_merge_per_drug so recalculate the gap and then merge based on threshold again
 
 
 
@@ -813,7 +816,8 @@ unique(merged_df$DrugName_clean)
 # gantt's chart for treatment trajectory ----------------------------------
 # Create a data frame with start, end, drug, and patient columns
 df <- merged_df %>%
-  head(10000) %>% 
+  head(1000) %>%
+  # filter(ReferenceKey == "10140118") %>% 
   mutate(patient = as.factor(ReferenceKey),
          end = PrescriptionEndDate) %>%  # ifelse would give unintended bridges
          # end = ifelse(is.na(gap_output), 
@@ -821,88 +825,21 @@ df <- merged_df %>%
          #              PrescriptionStartDate + gap_output)) %>%
   select(start = PrescriptionStartDate, end, drug = DrugName_clean, patient)
 
+# sample df just for showing the gantt's chart for one pt, illustrative purposes only
+# extract_traj(prescription_traj_list[["10140118"]]) # eg to check validity of the plot
+
+# df <- data.frame(
+#   start = as.Date(c("2019-05-15", "2019-06-05", "2019-07-02", "2019-07-29", "2021-02-28", "2021-07-05", "2022-03-08", "2022-05-30")),
+#   end = as.Date(c("2019-06-05", "2019-07-02", "2019-07-29", "2021-02-28", "2021-07-05", "2022-03-08", "2022-04-10", "2023-01-08")),
+#   drug = c("cdmard", "cdmard+jaki", "cdmard", "cdmard+jaki", "cdmard", "cdmard+il6", "il6", "cdmard+il6"),
+#   patient = as.factor(c("10140118", "10140118", "10140118", "10140118", "10140118", "10140118", "10140118", "10140118"))
+# )
 
 
 unique(df$drug)
 unique(merged_df$DrugName_clean)
-print(df, n = 100)
+# print(df, n = 100)
 
-# Define a color palette for the drugs from below
-# Create the Gantt chart
-fig <- plot_ly(df, x = ~start, 
-               y = ~patient,
-               color = ~drug, 
-               colors = drug_colors,
-               # mode = 'none',
-               type = 'box',
-               # boxpoints = "outliers", # display only the most extreme data points
-               boxmean = FALSE, # do not display the mean line
-               boxpoints = FALSE, # so it does not display those random points
-               line = list(width = 0), # remove the lines around the box
-               marker = list(size = 0)) %>%
-  
-  # add_trace(x = ~end) %>% # do not need a line connecting to the end
-  layout(yaxis = list(title = "",
-                              tickfont = list(size = 6)),
-         
-         xaxis = list(
-           title = "Year",
-           # tickmode = "linear", # somehow the tickmode forbidden years from spreading out
-           tickfont = list(size = 6),
-           tick0 = lubridate::year(min(df$start)),
-           tickvals = seq(lubridate::year(min(df$start)), lubridate::year(max(df$start)), by = 1),
-           dtick = 3,
-           tickangle = 0,
-           # no rotation
-           tickformat = "%Y",
-           domain = c(0.1, 0.9)
-         ), 
-         
-         title = list(text = "<b>Treatment Trajectories of Patients</b>",
-                      font = list(size = 15)),
-         hovermode = 'y')
-
-fig
-
-min(df$start)
-
-df %>% filter(patient == 1005302)
-
-# Define lighter colors for single drugs
-single_colors <- c("cdmard" = "#aec7e8", 
-                   "cd28" = "#c7e9c0", 
-                   "jaki" = "#fbb4b9", 
-                   "il6" = "#ffbb78", 
-                   "tnfi" = "#bcbd22",
-                   "cd20" = "#dbdb8d")
-
-# Define darker colors for drug combinations
-combo_colors <- c("cdmard+jaki" = "#54278f", 
-                  "cdmard+tnfi" = "#8c2d04", 
-                  "cd28+cdmard" = "#1f77b4", 
-                  "cdmard+il6" = "#7f7f7f", 
-                  "cdmard+il6+jaki" = "#2ca02c", 
-                  "cd28+cdmard+il6" = "#9467bd", 
-                  "cdmard+jaki+tnfi" = "#7f2704", 
-                  "cd20+cdmard" = "#e7cb94", 
-                  "cd28+il6" = "#8c564b", 
-                  "cd28+jaki" = "#e377c2", 
-                  "cdmard+il6+tnfi" = "#d62728", 
-                  "il6+tnfi" = "#bcbd22", 
-                  "jaki+tnfi" = "#e377c2", 
-                  "cd28+cdmard+tnfi" = "#ff7f0e", 
-                  "cd20+cdmard+jaki" = "#c7b299", 
-                  "cd20+cdmard+tnfi" = "#ff7f0e", 
-                  "cd20+jaki" = "#e377c2", 
-                  "cd28+tnfi" = "#ff7f0e", 
-                  "il6+jaki" = "#e377c2", 
-                  "cd28+cdmard+jaki" = "#9467bd", 
-                  "cd20+tnfi" = "#ff7f0e", 
-                  "cd20+cdmard+il6" = "#c7b299", 
-                  "cd20+cd28+cdmard" = "#9467bd")
-
-
-# darker overall
 # Define lighter colors for single drugs
 single_colors <- c("cdmard" = "#6d8db8",
                    "cd28" = "#8fbf8b",
@@ -939,48 +876,47 @@ combo_colors <- c("cdmard+jaki" = "#3c1a61",
 # Combine the two palettes
 drug_colors <- c(single_colors, combo_colors)
 
-# add the gap in which there are no treatment, and a light colour to represent that
-# sort data to put them in reasonable order e.g. of complexity starting with monotherapy
 
-# filter based on duration and consider removing if less than a threshold
+# Create a new column in the dataframe that assigns the correct color to each drug
+df$color <- drug_colors[df$drug]
 
-# apply again gap_merge_per_drug so recalculate the gap and then merge based on threshold again
+# Create the plot
+fig <- df %>%
+  plot_ly() %>%
+  add_segments(x = ~start, xend = ~end, 
+               y = ~as.character(patient), yend = ~as.character(patient),
+               line = list(color = ~color, width = 1), # Use the new color column here
+               color = ~color, 
+               name = ~drug, 
+               hoverinfo = "text",
+               text = ~paste("Drug:", drug,
+                             "<br>Start:", format(start, "%d %b, %Y"),
+                             "<br>End:", format(end, "%d %b, %Y"),
+                             "<br>Patient:", patient),
+               showlegend = TRUE)
 
+fig
 
+# Customize the layout
+fig <- fig %>% layout(
+  xaxis = list(title = "Year", tickfont = list(size = 6),
+               tick0 = lubridate::year(min(df$start)),
+               tickvals = seq(lubridate::year(min(df$start)), lubridate::year(max(df$start)), by = 1),
+               dtick = 3,
+               tickangle = 0,
+               tickformat = "%Y",
+               domain = c(0.1, 0.9)),
+  yaxis = list(
+    title = "",
+    # tickmode = "linear",  # Use linear tick mode
+    # dtick = 1,  # Adjust the tick interval as needed
+    showticklabels = FALSE,
+    tickfont = list(size = 6)),
+  title = list(text = "<b>Treatment Trajectories of Patients</b>", font = list(size = 15)),
+  hovermode = 'closest'
+)
 
-# days before the use of b/tsDMARD (we don't worry about csDMARD most of the time)
-
-# won't need proportion of pts to require 2 or 3 drugs at any point since we decided to group all csdmards into one category
-                                  
-# still include infliximab regardless of administration
-                                  
-# group only csdmard since less clinical and economically impactful, but not b/tsDMARDS as clinical efficacy and price are moderately different
-
-# visualise treatment trajectory ------------------------------------------
-
-titanic_wide <- data.frame(Titanic)
-
-ggplot(data = titanic_wide,
-       aes(
-         axis1 = Class,
-         axis2 = Sex,
-         axis3 = Age,
-         y = Freq
-       )) +
-  scale_x_discrete(limits = c("Class", "Sex", "Age"),
-                   expand = c(.2, .05)) +
-  xlab("Demographic") +
-  geom_alluvium(aes(fill = Survived)) +
-  geom_stratum() +
-  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
-  theme_minimal() +
-  ggtitle(
-    "passengers on the maiden voyage of the Titanic",
-    "stratified by demographics and survival"
-  )
-
-
-
+fig
 
 # number of days before first change in regimen
 
