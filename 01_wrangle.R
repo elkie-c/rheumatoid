@@ -247,8 +247,7 @@ print(paste0(unique(unwanted_ra)[1:5], collapse = ", "))
 print(paste0(
   "So the number of patients who remain in the analysis are ",
   length(unique(diagnosis_sub$Reference.Key.)) - length(unique(unwanted_ra))
-)
-)
+))
 
 # then, unwanted_ra gives us 194 in the following line
 # length(unique(unwanted_ra))
@@ -261,7 +260,6 @@ diagnosis_sub <- diagnosis_sub %>%
 # weight_df
 # diagnosis_sub
 diagnosis_sub %>% select(All.Diagnosis.Description..HAMDCT..)
-diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."]
 
 diagnosis_sub$ICD <- regmatches(
   x = diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."],
@@ -283,87 +281,90 @@ diagnosis_sub$ICD <- regmatches(
 # diagnosis_sub %>% filter(ICD != ICD_no_0) %>% select(ICD, ICD_no_0, All.Diagnosis.Description..HAMDCT..)
 
 
-
 # add before_ra column, boolean for entry whether it was before the first_ra diagnosis
 diagnosis_sub <- diagnosis_sub %>% mutate(before_ra = if_else(Reference.Date. < first_ra, T, F))
 
-
-
-# for each patient, get the character vector of the ICD9 first
-pt_icds_all <- diagnosis_sub %>%
-  group_by(Reference.Key.) %>%
-  summarise(ICD = paste(unique(ICD), collapse = ","))
-
-# output dataframe of the same reference number but NA for score column
-scores_df <- data.frame(pt_icds_all[, "Reference.Key."], score = NA, score_before_ra = NA)
-
-# for loop looping each row to extract the ICDs; then create the regex out of the ICD vector; for each of them grep the weight_df to see if matches any row; cumulatively sum the assigned weight
-
-for (i in seq(nrow(pt_icds_all))) {
-
-  # create the regex by replacing the , by |, OR. No ICD have 4 digits so is ok, no need to worry about 300 matching 3001 (4 digits before a dot)
-  icds_regex <- pt_icds_all[i,"ICD"] %>% pull() %>% gsub(pattern = ",", replacement ="|", fixed = TRUE) %>% gsub(pattern = ".", replacement ="\\.", fixed = TRUE) 
+#' cal_timepoint_score
+#' give it a timepoint. e.g. 5 days. Then look for ICDs that happened before, inclusively, 5 days after the diagnosis of first_ra. Takes those ICD score. Uses the weight_df matrix to assign weight, and outputs a df with score for each Referencekey
+#' @param days variable for the number of days. If set to 0, then would be the score BEFORE RA (not including the day of RA). If set to arbitrarily large number, like 100000000, would be the current i.e. most updated ICDs of the pt, all included.
+#' @param diagnosis_sub 
+#' @param weight_df previous weight_df. The weights come from publications
+#'
+#' @return a df called scores_df which has reference key and weighting score for each reference key
+#' @export
+#'
+#' @examples
+cal_timepoint_score <- function(days, diagnosis_sub, weight_df) {
+  df <- diagnosis_sub %>%
+    mutate(
+      ICD_before_timepoint = case_when(
+        Reference.Date. <= first_ra + days ~ ICD, # preserve ICD code only if the ICD happened more than days (variable) after first_ra
+        TRUE ~ "NA")
+    ) %>% 
+    group_by(Reference.Key.) %>%
+    summarise(ICD_before_timepoint = paste(unique(ICD_before_timepoint), collapse = ","))
   
-  # for each item, use grep, get all the relevant row in the weight_df df
-  matching_rows <- grepl(x = weight_df$ICD9_clean,
-                         pattern = icds_regex)
   
-  if (any(matching_rows)) {
-    # then cumulatively sum the assigned_weight
-    score <- weight_df[matching_rows, ] %>% summarise(score = sum(Assigned_weight)) %>% pull()
-  } else {
-    score <-  0
+  # create empty df to assign the values in the for loop in this function
+  scores_df <- data.frame(Reference.Key. = character(),
+                          score_before_timepoint = numeric(),
+                          stringsAsFactors = FALSE)
+  
+  # same as last time so for explanation just see above
+  for (i in seq(nrow(df))) {
+    icds_regex <-
+      df[i, "ICD_before_timepoint"] %>% pull() %>% gsub(pattern = ",",
+                                                                replacement = "|",
+                                                                fixed = TRUE) %>% gsub(pattern = ".",
+                                                                                       replacement = "\\.",
+                                                                                       fixed = TRUE) 
+    matching_rows <- grepl(x = weight_df$ICD9_clean,
+                           pattern = icds_regex)
+    
+    # icds_regex
+    # weight_df[matching_rows, ] # to look at the matching rows
+    
+    if (any(matching_rows)) {
+      score_before_timepoint <- weight_df[matching_rows, ] %>% summarise(score = sum(Assigned_weight)) %>% pull()
+    } else {
+      score_before_timepoint <-  0
+    }
+    
+    # do the bind_rows rather than checking the reference key
+    new_row <- data.frame(Reference.Key. = df[i, "Reference.Key."],
+                          score_before_timepoint = score_before_timepoint)
+    scores_df <- bind_rows(scores_df, new_row)
+
   }
   
-  # then that which the reference key at i matches the output, update the score
-  scores_df[which(scores_df$Reference.Key. == pt_icds_all$Reference.Key.[i]), "score"] <- score
+  # customise the column name to reflect the days
+  names(scores_df)[names(scores_df) == "score_before_timepoint"] <- paste0("score_before_", days)
+  
+  return(scores_df)
   
 }
 
 
-# for debugging, making sure when the grep returns an entry actually the same icd we are loooking for 
-# grep(pattern = "250", x = weight_df$ICD9_clean, value = TRUE)
-# grep(pattern = "414", x = weight_df$ICD9_clean, value = TRUE)
-# grep(pattern = "715", x = weight_df$ICD9_clean, value = TRUE)
-# icds_regex
+# score before RA; join the new scores df
+scores_df <- cal_timepoint_score(0, diagnosis_sub, weight_df)
+
+# score inclusive of the day of dx of RA (in case pt was diagnosed for problems on top of RA on that consultation day)
+scores_df <- left_join(cal_timepoint_score(1, diagnosis_sub, weight_df), scores_df, by = "Reference.Key.")
+
+# score 1 month after RA
+scores_df <- left_join(cal_timepoint_score(31, diagnosis_sub, weight_df), scores_df, by = "Reference.Key.")
+
+# score 6 months after RA
+scores_df <- left_join(cal_timepoint_score(182, diagnosis_sub, weight_df), scores_df, by = "Reference.Key.")
+
+# score 1 year after RA
+scores_df <- left_join(cal_timepoint_score(365, diagnosis_sub, weight_df), scores_df, by = "Reference.Key.")
+
+# the score after infinitely long i.e. up to current day (273 years)
+scores_df <- left_join(cal_timepoint_score(100000, diagnosis_sub, weight_df), scores_df, by = "Reference.Key.")
 
 
 
-# get the weighting score for the chronic conditions BEFORE diagnosing first_ra
-# if TRUE, then use ICD value. If FALSE, just use NA value
-pt_icds_before_ra <- diagnosis_sub %>%
-  mutate(
-    ICD_conditioned = case_when(
-      before_ra == TRUE ~ ICD,
-      before_ra == FALSE ~ "NA")
-  ) %>% 
-  group_by(Reference.Key.) %>%
-  summarise(ICD_conditioned = paste(unique(ICD_conditioned), collapse = ","))
-
-# same as last time so for explanation just see above
-for (i in seq(nrow(pt_icds_before_ra))) {
-  
-  icds_regex <-
-    pt_icds_before_ra[i, "ICD_conditioned"] %>% pull() %>% gsub(pattern = ",",
-                                                    replacement = "|",
-                                                    fixed = TRUE) %>% gsub(pattern = ".",
-                                                                           replacement = "\\.",
-                                                                           fixed = TRUE) 
-  
-  matching_rows <- grepl(x = weight_df$ICD9_clean,
-                         pattern = icds_regex)
-  
-  if (any(matching_rows)) {
-    score_before_ra <- weight_df[matching_rows, ] %>% summarise(score = sum(Assigned_weight)) %>% pull()
-  } else {
-    score_before_ra <-  0
-  }
-  
-  # then that which the reference key at i matches the output, update the score
-  scores_df[which(scores_df$Reference.Key. == pt_icds_before_ra$Reference.Key.[i]), "score_before_ra"] <- score_before_ra
-}
-
-scores_df <- scores_df[order(as.numeric(scores_df$Reference.Key.)),]
 
 
 # clean prescription df--------------------------------------------------------------
@@ -797,9 +798,150 @@ table(merged_df$DrugName_clean)
 
 
 
-# get a label per pt whether first, second, or third-line tx used (useful for all forms of plotting including stratifying the weighting score later
+# get a label per pt whether first, second, or third-line tx used (useful for all forms of plotting including stratifying the weighting score later; but cannot have reduced the cDMARD, need to have the drug names (so we know if 2 cDMARD are used → second-phase of treatment already)
 
-# calculate days before the use of b/tsDMARD (we don't worry about csDMARD most of the time)
+
+# calculate days before the use of b/tsDMARD (we don't worry about csDMARD most of the time)--------------------------------
+# so these are either b or tsdmard, calculate number of days till the use of it
+btsdmard <- c(tnfi, cd28, cd20, il6, jaki)
+
+# diagnosis_sub is from clean_diagnosis see earlier subtitle of this script
+# join the table to obtain the day of first_ra diagnosis
+merged_df <- left_join(merged_df, 
+          unique(diagnosis_sub[, c("Reference.Key.", "first_ra")]), 
+          by = c("ReferenceKey" = "Reference.Key."))
+
+merged_df$first_ra <- as.Date(merged_df$first_ra)
+
+# sensibility check: why some pts receive prescription before their date of first dx with RA?
+
+# return the FALSE ones because you would expect first_ra <= prescriptionstartdate
+
+# you would expect that first_ra is smaller or equal to prescriptionstartdate since we have already excluded, earlier, those who have conditions other than RA which indicate the use of biologics. 
+prescription_after_ra <- merged_df %>%
+  group_by(ReferenceKey) %>%
+  filter(PrescriptionStartDate == min(PrescriptionStartDate)) %>%
+  ungroup() %>% 
+  filter(first_ra <= PrescriptionStartDate) %>% 
+  pull(ReferenceKey)
+
+# the cohort which we potentially want to exclude from our analysis
+prescription_before_ra <- merged_df %>%
+  group_by(ReferenceKey) %>%
+  filter(PrescriptionStartDate == min(PrescriptionStartDate)) %>%
+  ungroup() %>% 
+  filter(first_ra > PrescriptionStartDate) %>% 
+  pull(ReferenceKey)
+
+
+print(paste0("Of the ", length(unique(merged_df$ReferenceKey)), 
+             " patients, we would expect that the earliest date of diagnosis of rheumatoid arthritis must have occured before the prescription of any rheumatoid arthritis drugs. This is indeed the case for ", 
+             length(prescription_after_ra), 
+             " patients. However, we found that there were ", 
+             length(prescription_before_ra), " exceptions in which the patient received RA-related prescription before the earliest date of rheumatoid arthritis diagnosis. These patients will be excluded from our analysis as they affect the reliability of the number of days relapsed since the use of b/tsDMARD."))
+
+# random <- 5
+# diagnosis_sub %>% filter(Reference.Key. == prescription_before_ra[random]) %>% arrange(Reference.Date.)
+#  
+# prescription_sub %>% filter(ReferenceKey == prescription_before_ra[random]) %>% select(ReferenceKey, PrescriptionStartDate, PrescriptionEndDate, DrugName) %>% arrange(PrescriptionStartDate)
+# 
+# View(diagnosis_sub %>% filter(Reference.Key. == prescription_before_ra[random]) %>% arrange(Reference.Date.))
+# View(prescription_sub %>% filter(ReferenceKey == prescription_before_ra[random]) %>% select(ReferenceKey, PrescriptionStartDate, PrescriptionEndDate, DrugName) %>% arrange(PrescriptionStartDate))
+
+
+
+
+# days till first prescription
+# setting earliest_start_date, so we can separate pt which we want to include in b/tsDMARD analysis
+# row_number returns a column of integers indicating the row number for each row in a group
+# row_number() to identify the first row within each group, and for that row, we set first_ra to the earliest_start_date. For all other rows in each group, we use the same logic as before to set first_ra to the earliest PrescriptionStartDate only if it is later than the current first_ra.
+merged_df <- merged_df %>%
+  arrange(ReferenceKey, PrescriptionStartDate) %>%
+  group_by(ReferenceKey) %>%
+  mutate(
+    earliest_start_date = min(PrescriptionStartDate),
+    prescription_after_ra = earliest_start_date >= first_ra
+  ) %>%
+  ungroup()
+
+# code if we decided to just modify and go with the pseudo-dx date instead
+# merged_df %>%
+#   group_by(ReferenceKey) %>%
+#   mutate(
+#     earliest_start_date = min(PrescriptionStartDate),
+#     first_ra = if_else(row_number() == 1 | first_ra > earliest_start_date, earliest_start_date, first_ra)
+#   ) %>%
+#   ungroup()
+
+
+# merged_df %>% filter(prescription_after_ra == TRUE) %>% pull(ReferenceKey) %>% unique()
+
+# number of days from dx to prescription of first_ra drug; normally should be positive as prescription comes after dx
+merged_df$dx_to_prescription <- merged_df$earliest_start_date - merged_df$first_ra
+
+# if negative, it means RA ICD diagnosis came after the first prescription of RA-related drug
+num_vec <- merged_df %>% filter(dx_to_prescription < 0) %>% distinct(ReferenceKey, dx_to_prescription) %>% pull(dx_to_prescription)
+  
+
+range_vec <- cut(as.numeric(num_vec), breaks = c(-Inf, -365, -100, -31, -14, -7, -1), 
+                 labels = c("-365 to -101", "-100 to -31", "-30 to -15", "-14 to -8", "-7 to -2", "-1"))
+
+# Create a frequency table of the counts within each category
+table(range_vec)
+
+
+# is just the dx_to_prescription column; already there, no need below line
+# merged_df %>% mutate(days_to_first_drug = difftime(first_ra, earliest_start_date, units = "days"))
+#
+
+options(max.print = 50)
+# just to hv an idea of the distribution of values
+merged_df %>% pull(DrugName_clean) %>% table()
+
+# days till first cdmard
+# negative would be FALSE for prescription_after_ra
+merged_df <- merged_df %>%
+  filter(DrugName_clean == "cdmard") %>%
+  group_by(ReferenceKey) %>% # so would give us earliest startdate by reference key
+  mutate(earliest_cdmard_date = min(PrescriptionStartDate)) %>%
+  mutate(days_to_cdmard = earliest_cdmard_date - first_ra) %>%
+  distinct(ReferenceKey, days_to_cdmard) %>%  # only need unique to prevent many-to-many relationship
+  select(ReferenceKey, days_to_cdmard) %>% 
+  full_join(merged_df) # so merged_df gets a new column, which is days_to_cdmard; rather than left_join
+
+# merged_df %>% filter(is.na(days_to_cdmard))
+
+# you should get some NA values because there are patients who did not take cdmard
+# any(is.na(merged_df %>% pull(days_to_cdmard)))
+# any(is.na(temp %>% pull(days_to_cdmard)))
+
+
+# date till first bsdmard if any (NA otherwise)
+# btsdmard is made of (tnfi, cd28, cd20, il6, jaki)
+# merged_df %>% pull(DrugName_clean) %>% unique()
+
+merged_df <- merged_df %>% 
+  filter(grepl(pattern = paste(c("jaki", "tnfi", "cd20", "cd28", "il6"), collapse = "|"),
+               x = DrugName_clean)) %>%
+  group_by(ReferenceKey) %>% 
+  mutate(earliest_btsdmard_date = min(PrescriptionStartDate)) %>% 
+  mutate(days_to_btsdmard = earliest_btsdmard_date - first_ra) %>%
+  distinct(ReferenceKey, days_to_btsdmard) %>%
+  select(ReferenceKey, days_to_btsdmard) %>% 
+  full_join(merged_df)
+
+# print(temp %>% filter(is.na(days_to_btsdmard)), n = 200)
+
+
+# View(merged_df %>% filter(ReferenceKey == 1006299))
+
+
+
+# add the weighting scores at RA diagnosis
+
+
+
+
 
 
 
@@ -816,7 +958,7 @@ table(merged_df$DrugName_clean)
 # gantt's chart for treatment trajectory ----------------------------------
 # Create a data frame with start, end, drug, and patient columns
 df <- merged_df %>%
-  head(1000) %>%
+  head(10000) %>%
   # filter(ReferenceKey == "10140118") %>% 
   mutate(patient = as.factor(ReferenceKey),
          end = PrescriptionEndDate) %>%  # ifelse would give unintended bridges
@@ -885,7 +1027,7 @@ fig <- df %>%
   plot_ly() %>%
   add_segments(x = ~start, xend = ~end, 
                y = ~as.character(patient), yend = ~as.character(patient),
-               line = list(color = ~color, width = 1), # Use the new color column here
+               line = list(color = ~color, width = 2), # Use the new color column here
                color = ~color, 
                name = ~drug, 
                hoverinfo = "text",
@@ -894,8 +1036,6 @@ fig <- df %>%
                              "<br>End:", format(end, "%d %b, %Y"),
                              "<br>Patient:", patient),
                showlegend = TRUE)
-
-fig
 
 # Customize the layout
 fig <- fig %>% layout(
@@ -945,9 +1085,12 @@ extract_traj(df)
 
 # create the function to extract the treatment trajectory; function should be able to apply on class of drug, but also later on the moa
 
+
 # first separate the df by reference key
 
+
 # monotherapy
+
 
 # dual therapy; arrange by time and see if given same time or not
 
