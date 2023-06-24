@@ -1,26 +1,26 @@
 {
-    "id": "13ACECC3",
+    "id": "F0624FF7",
     "path": "~/Documents/GitHub/rheumatoid/02_functions.R",
     "project_path": "02_functions.R",
     "type": "r_source",
-    "hash": "3926337347",
+    "hash": "0",
     "contents": "",
     "dirty": false,
-    "created": 1687067991141.0,
+    "created": 1687410704436.0,
     "source_on_save": false,
-    "relative_order": 5,
+    "relative_order": 3,
     "properties": {
         "source_window_id": "",
         "Source": "Source",
-        "cursorPosition": "258,0",
-        "scrollLine": "241"
+        "cursorPosition": "150,0",
+        "scrollLine": "134"
     },
-    "folds": "",
-    "lastKnownWriteTime": 1687099610,
+    "folds": "1|31|13|0|\n14|46|46|0|\n47|14|97|0|\n155|18|207|0|\n208|15|294|0|\n",
+    "lastKnownWriteTime": 1687613222,
     "encoding": "UTF-8",
     "collab_server": "",
     "source_window": "",
-    "last_content_update": 1687099610038,
+    "last_content_update": 1687613222130,
     "read_only": false,
     "read_only_alternatives": []
 }

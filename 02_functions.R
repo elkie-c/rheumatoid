@@ -12,7 +12,7 @@
 #   PrescriptionEndDate = c("2019-08-13", "2019-08-13", "2019-08-13", "2020-02-25", "2020-02-25", "2020-02-25", "2018-06-19", "2018-12-18", "2019-04-09", "2019-04-09", "2019-04-09", "2017-08-15", "2018-02-13", "2016-08-02", "2017-01-17", "2013-11-13", "2014-04-22", "2014-06-17", "2014-11-11", "2015-04-15", "2015-08-11", "2016-02-16", "2020-10-04", "2020-10-04", "2020-10-04", "2021-05-04", "2021-05-04", "2021-05-04", "2021-12-14", "2021-12-14", "2022-05-24", "2022-05-24"),
 #   DrugName_clean = c("HYDROXYCHLOROQUINE", "LEFLUNOMIDE", "METHOTREXATE", "HYDROXYCHLOROQUINE", "LEFLUNOMIDE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "HYDROXYCHLOROQUINE", "LEFLUNOMIDE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "METHOTREXATE", "HYDROXYCHLOROQUINE", "LEFLUNOMIDE", "METHOTREXATE", "HYDROXYCHLOROQUINE", "LEFLUNOMIDE", "METHOTREXATE", "LEFLUNOMIDE", "METHOTREXATE", "LEFLUNOMIDE", "METHOTREXATE"))     
 
-# gap_output <- vector("numeric", nrow(df)-1) 
+# gap_output <- vector("numeric", nrow(df)-1) -----------------------------------
 #' calculate gaps 
 #'
 #' @param df 
@@ -44,6 +44,8 @@ gap <- function(df) {
 
 # so you have an output df from the above. Next step is MUTATE to add the boolean (in 01_wrangle)
 
+
+# merge dates -------------------------------------------------------------
 #' merge dates
 #' so based on the output of gap_output, you have the dates and gaps. Then this function will merge based on the boolean. 
 #' @param df 
@@ -68,7 +70,7 @@ merge_dates <- function(df) {
       # so let's say i = 4 you hit a TRUE, the first time you want the period from initial_i i.e. i = 1 StartDate to i = 3 EndDate (because the break is between EndDate of i=3 and startDate of i=4
       # PrescriptionEndDate[i] checked
       output <- rbind(output, 
-                      setNames(data.frame(df$PrescriptionStartDate[initial_i], df$PrescriptionEndDate[i], df$DrugName_clean[i]), nm = colnames(output))
+                      setNames(data.frame(df$PrescriptionStartDate[initial_i], max(df$PrescriptionEndDate[1:i]), df$DrugName_clean[i]), nm = colnames(output))
       ) # use setNames to prevent the data.frame rigging the actual names we wanted
       
       # whenever you created a new period for the drug, you need to reset the initial_i so it starts at i+1 rather than at initial_i = 1, because at i is where the new beginning of the next period is; if you start at i instead of i+1, recall we already had the period up to endDate of i, so there would be overlap there
@@ -79,19 +81,28 @@ merge_dates <- function(df) {
       
       # unlike if, we take df$PrescriptionEndDate[i] to be the end rather than i-1, because NA does not signify any gap
       output <- rbind(output, 
-                      setNames(data.frame(df$PrescriptionStartDate[initial_i], df$PrescriptionEndDate[i], df$DrugName_clean[i]), nm = colnames(output))
-      ) 
+                      setNames(data.frame(df$PrescriptionStartDate[initial_i], max(df$PrescriptionEndDate[1:i]), df$DrugName_clean[i]), nm = colnames(output))
+      )  # see explanation for max below
     }
   }
   return(output)
 }
 
+# Explanation for taking max(df$PrescriptionEndDate[1:i])
+# so from RefKey 2154976, where the penultimate entry has a prescriptionenddate later than that of the last row
+# then when you take initial_i from n-1, and i from end date of n, where n is the number of rows, you will miss the last end date which is actually n-1
 
+# solution is to alter taking the prescriptionenddate such that you take the maximum prescription end date inclusively above row i
+# because if there is a prescription end date LATER than the current row somewhere above, call that row x. You are at row n. Then prescription start date of row n must be later than row x. And then for this awkward situation, prescriptionenddate of row n is before row x. Which means n is located inside x. And since we already ranked by prescription startdate, we have the earliest start date by the initial_i counter, we could safely take the last enddate. 
+
+
+# gap_merge_per_drug ------------------------------------------------------
 #' gap_merge_per_drug
 #'
 #' @param df 
 #' @param threshold threshold <- 30 # arbitrary threshold for which discontinuity more than threshold is considered a break from the drug use
 #' this function will take the df of EACH drug e.g. all the different periods of methotrexate for the same ReferenceKey and then call two other functions, which are found in 02_functions.R, to yield output. First it identifies gap in the drug prescription, then it merges them based on whether they meet a threshold
+#' this is a recursive function to merge gaps until there are no gaps in case of ranges that are included in each other; quite tricky
 #' @return
 #' @export
 #'
@@ -111,12 +122,38 @@ gap_merge_per_drug <- function(df, threshold = 14) {
   
   # merge_dates is from 02_functions.R
   output <- merge_dates(df) # output of a df of just a few rows of the merged dates
+  
+  # previously noted a problem with adalimumab as there are many prescriptions overlapping each other, some completely nested by another, so one round of applying gap_merge_per_drug was insufficient; therefore, here I have modified the code to repeat the merging action of gap still produces a gap smaller than the threshold
+  
+  # create gap(output)
+  temp <- gap(output)
+  temp <- temp %>% 
+    mutate(
+      gap_boolean = case_when(
+        gap_output <= threshold ~ FALSE,
+        gap_output > threshold ~ TRUE,
+        TRUE ~ NA
+      )
+    )
+  
+  # only take the non-na values; only return output if ALL of them are TRUE or else indicates presence of gaps
+  
+  
+  if (!all(temp$gap_boolean[ !is.na(temp$gap_boolean) ])) { # if any of those gaps, this whole expression (with ! negating at the start) would return a true
+    
+    # recursive, call back this gap_merge_per_drug, using output (where we did not add the columns)
+    gap_merge_per_drug(output)
+    
+  } else{ 
   return(output)
+  }
 }
 # 
 # undebug(gap_merge_per_drug)
 # debug(merge_dates)
 
+
+# decompose dates ---------------------------------------------------------
 #' decompose dates
 #'
 #' @param drug_period 
@@ -169,9 +206,7 @@ decompose_dates <- function(row, dates) {
 
 
 
-
-
-
+# extract_traj ------------------------------------------------------------
 # load the functions inside of 02_functions.R since extract_traj calls them
 extract_traj <- function(df) {
   df$PrescriptionStartDate <-
@@ -180,20 +215,19 @@ extract_traj <- function(df) {
     as.POSIXct(df$PrescriptionEndDate, format = "%Y-%m-%d")
   
   # sort the data by PrescriptionStartDate
-  df <- df[order(df$PrescriptionStartDate),]
+  # df <- df[order(df$PrescriptionStartDate),]
   
   df <- df %>%
+    arrange(PrescriptionStartDate) %>% 
     select (PrescriptionStartDate, PrescriptionEndDate, DrugName_clean) %>%
     unique()
   
-  split_df <- split(df, f = df$DrugName_clean)
-  
-  # df <- prescription_traj %>% filter(ReferenceKey == 10027297) # eg of triple therapy
-  # df <- prescription_traj %>% filter(ReferenceKey == 847624) # e.g. of monotherapy
   
   
   # EG ONLY make sure to convert df into single df
   # df <- df %>% filter(DrugName_clean == "METHOTREXATE")
+  
+  split_df <- split(df, f = df$DrugName_clean)
   
   # Reduce after lapply so gets you the drugs, and the clean period for which it was used!
   drug_period <-
@@ -207,9 +241,7 @@ extract_traj <- function(df) {
   # theoretically, if you had monotherapy (which may have more than one periods), you could just output here, and give a duration. But I decided to let it run the rest of the code if it does not take up too much time, and outputs data in the desirable format
   
   # because rbind so we lost the order; rank again
-  drug_period <-
-    drug_period[order(drug_period$PrescriptionStartDate),]
-  
+  drug_period <- drug_period %>% arrange(PrescriptionStartDate)
   
   # pull out all the dates
   dates <-
@@ -239,7 +271,8 @@ extract_traj <- function(df) {
   # arrange also by drugname_clean so we get cd28+cdmard and not repeat with cdmard+cd28
   output <- output %>%
     group_by(PrescriptionStartDate, PrescriptionEndDate) %>%
-    arrange(PrescriptionStartDate, PrescriptionEndDate, DrugName_clean) %>% 
+    arrange(PrescriptionStartDate, PrescriptionEndDate, DrugName_clean) %>%  # by alphabetical order of DrugName_clean
+    distinct(PrescriptionStartDate, PrescriptionEndDate, DrugName_clean) %>% 
     summarise(DrugName_clean = paste(DrugName_clean, collapse = "+"), .groups = 'drop') %>% # .groups just to silence the message, probably redundant here tho the code
     ungroup() %>%
     arrange(PrescriptionStartDate)
@@ -256,4 +289,6 @@ extract_traj <- function(df) {
   output <- gap(output) 
   return(output)
 }
+
+
 

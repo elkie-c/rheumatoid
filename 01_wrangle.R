@@ -363,8 +363,10 @@ scores_df <- left_join(cal_timepoint_score(365, diagnosis_sub, weight_df), score
 # the score after infinitely long i.e. up to current day (273 years)
 scores_df <- left_join(cal_timepoint_score(100000, diagnosis_sub, weight_df), scores_df, by = "Reference.Key.")
 
+# saveRDS(object = scores_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/scores_df.rds")
+# scores_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/scores_df.rds")
 
-
+# one potential problem is if pt was diagnosed e.g. with RA at 2022 December. A year from then would be 2023 Dec when we do not have the data yet, but our data would make it appear as tho the pt has not had any worsening. But we do not know the end-point. Unless first_ra we use that to ignore the consideration of data 1 year from first_ra for the score score_before_365 days. So we could do that downstream using first_ra. 
 
 
 # clean prescription df--------------------------------------------------------------
@@ -527,13 +529,9 @@ select(ReferenceKey, bioo_or_bios, DrugName_clean) %>%
 
 print(df, n = 27)
 
-output <- "/Users/elsiechan/Desktop/prescription_traj.rds"
-saveRDS(object = prescription_traj, file = output)
 
-# showing kuan the eg where we can't tell the bioo_or_bios
-# prescription_sub %>% filter(!is.na(ingredient))
-
-
+saveRDS(object = prescription_traj, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/prescription_traj.rds")
+# readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/prescription_traj.rds")
 
 # barplot which shows uptake by bioo_or_bios ------------------------------
 # Create a subset of the data frame with only the columns we need
@@ -744,10 +742,51 @@ prescription_traj <- prescription_traj %>%
     )
   )
 
-# because if we use the drugname, end up having 176 drug combinations which is too many for Sankey diagram, so we try to use MoA instead (knowing moa is not the same as drugname, but the functions I have written uses drugname and would take too much effort to turn that into a customisable variable)
-prescription_traj$DrugName_clean <- prescription_traj$moa
+# prescription_traj %>% filter(ReferenceKey == 2154976) %>% arrange(PrescriptionStartDate) %>% tail()
 
-prescription_traj_list <- split(prescription_traj, f = prescription_traj$ReferenceKey)
+df <- prescription_traj
+
+Ref <- 2209539
+df <- df %>% filter(ReferenceKey == Ref)
+df <- df %>% arrange(ReferenceKey, PrescriptionStartDate) %>% head(10000)
+
+# testing the function after moa changes
+merged_df_drugnamed %>% filter(ReferenceKey == Ref) %>% print(n = 100)
+moanamed_df %>% filter(ReferenceKey == Ref) %>% print(n = 100)
+debug(extract_traj)
+debug(gap_merge_per_drug)
+debug(decompose_dates)
+undebug(extract_traj)
+undebug(gap_merge_per_drug)
+undebug(decompose_dates)
+df %>% filter(ReferenceKey == Ref) %>% select(PrescriptionStartDate, PrescriptionEndDate, DrugName_clean) %>% arrange(PrescriptionStartDate) %>% print(n = 100)
+df %>% filter(ReferenceKey == Ref) %>% extract_traj()
+df %>% filter(ReferenceKey == Ref) %>% mutate(DrugName_clean = moa) %>% extract_traj()
+
+df %>% filter(ReferenceKey == Ref)
+
+
+
+# Remove smaller intervals that are completely inclusive of another interval and of the same drug
+prescription_traj %>%
+  filter(ReferenceKey == 1319963) %>% 
+  arrange(PrescriptionStartDate) %>% 
+  group_by(ReferenceKey, DrugName_clean) %>% 
+  mutate(next_start_date = lead(PrescriptionStartDate),
+         next_end_date = lead(PrescriptionEndDate)) %>% 
+  # select(PrescriptionStartDate, PrescriptionEndDate, DrugName_clean, next_start_date, next_end_date) %>% arrange(PrescriptionStartDate) %>% print(n = 100) %>%  # only for purpose of debugging this line
+  ungroup() %>% 
+  filter(next_start_date != PrescriptionEndDate | is.na(next_start_date)) %>% # so if next start date is not equal to prescription end date, or next start date is NOT empty (as in the last row) would remove; hence if next start date is empty
+  select(-c(next_start_date, next_end_date)) %>% mutate(DrugName_clean = moa) %>% extract_traj()
+
+
+
+
+# UNCOMMENT THIS LINE TO GET BY MOA DF----------------------------
+# this line commented out but would have changed the analysis by MoA instead of DrugName_clean thereafter
+# df$DrugName_clean <- df$moa
+
+prescription_traj_list <- split(df, f = df$ReferenceKey)
 
 # extract_traj(prescription_traj_list[[170]])
 # prescription_traj_list[[180]]
@@ -755,14 +794,27 @@ prescription_traj_list <- split(prescription_traj, f = prescription_traj$Referen
 # temp_list <- lapply(X = prescription_traj_list[160:170], FUN = extract_traj)
 # extract_traj(prescription_traj_list[["10140118"]])
 
+# debug(extract_traj)
+# undebug(gap_merge_per_drug)
+# extract_traj(prescription_traj_list[["2154976"]]) %>% View()
+# extract_traj(prescription_traj_list[["1319963"]]) %>% View()
+
+# df %>% filter(ReferenceKey == 2154976) %>% tail()
+# prescription_traj %>% filter(ReferenceKey == 2154976) %>% View()
+# prescription_traj %>% filter(ReferenceKey == 2154976) %>% pull(DrugName_clean)
+# df %>% filter(ReferenceKey == 2154976) %>% pull(DrugName_clean)
+
+
 # need to have loaded the functions from 02_functions.R to run this
 # takes 7 minutes to run on 16707 pts
 temp_list <- lapply(X = prescription_traj_list, FUN = extract_traj)
+# temp_list[["1007790"]]
+
 
 # Define a function to add the ReferenceKey column which is now the name of the list
 add_reference_key <- function(df, key) {
   df$ReferenceKey <- key
-  df
+  return(df)
 }
 
 # Use pmap to apply the function to each data frame in the list
@@ -776,29 +828,153 @@ merged_df <- bind_rows(temp_list)
 merged_df$PrescriptionStartDate <- as.Date(merged_df$PrescriptionStartDate)
 merged_df$PrescriptionEndDate <- as.Date(merged_df$PrescriptionEndDate)
 
-merged_df$duration <- as.numeric(difftime(merged_df$PrescriptionEndDate, merged_df$PrescriptionStartDate, units = "secs")) / 86400
+merged_df$duration <-
+  as.numeric(
+    difftime(
+      merged_df$PrescriptionEndDate,
+      merged_df$PrescriptionStartDate,
+      units = "secs"
+    )
+  ) / 86400
 
 # Reorder the columns
 merged_df <- merged_df %>%
   select(ReferenceKey, everything())
 
 
-# temp_list[1:100]
+
 unique(merged_df$DrugName_clean)
 table(merged_df$DrugName_clean)
 
+# merged_df_drugnamed %>% filter(ReferenceKey == 1007790)
+
+
+
 # so the drugnamed would be when I didn't run this line prescription_traj$DrugName_clean <- prescription_traj$moa
-# saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/merged_df_drugnamed.rds")
-# saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/merged_df_moanamed.rds")
-
-
-# label pt with 1st, 2nd line tx ------------------------------------------
-
-# use mutate and case_when a hierarchy starting with more 3rd line
+# saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_drugnamed.rds")
+# saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_moanamed.rds")
 
 
 
-# get a label per pt whether first, second, or third-line tx used (useful for all forms of plotting including stratifying the weighting score later; but cannot have reduced the cDMARD, need to have the drug names (so we know if 2 cDMARD are used → second-phase of treatment already)
+merged_df_drugnamed <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_drugnamed.rds")
+moanamed_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_moanamed.rds")
+
+# moanamed has fewer rows than merged_df, is the reduced version; so we can join, and let it contain redundant information for now
+
+# now to merge them would lead to duplicate rows in moanamed; so later if need to convert back to moa just use distinct
+
+# Create a new column in merged_df_drugnamed with the prescription date range as an interval
+merged_df_drugnamed <- merged_df_drugnamed %>%
+  mutate(PrescriptionInterval_drugnamed = interval(PrescriptionStartDate, PrescriptionEndDate))
+
+moanamed_df <- moanamed_df %>% 
+  mutate(PrescriptionInterval_moa = interval(PrescriptionStartDate, PrescriptionEndDate))
+
+# first step use left join so drugnames are all present, but have NA columns in moanamed_df
+merged_df <- merged_df_drugnamed %>% left_join(
+  moanamed_df,
+  by = c(
+    "ReferenceKey",
+    "PrescriptionStartDate",
+    "PrescriptionEndDate"
+  ),
+  suffix = c("_drugnamed", "_moa")
+)
+
+
+# merged_df_drugnamed %>% filter(ReferenceKey == 1319963) %>% print(n = 100)
+# moanamed_df %>% filter(ReferenceKey == 1319963) %>% print(n = 100)
+# merged_df %>% filter(ReferenceKey == 1319963) %>% print(n = 100)
+
+
+
+# take the ones with NA (i.e. the entries that did not match) from merged_df, filter them out first
+na_rows <- merged_df %>% filter(is.na(DrugName_clean_moa))
+
+
+
+# for each ReferenceKey in that filtered merged_df, also grab the rows from moanamed_df
+
+#' fill_na_with_moa
+#'
+#' @param a take the same Referencekey pt with NA entries, from the na_rows
+#' @param b from the same ReferenceKey, the entire moa 
+#'
+#' @return a but instead of NA, those are filled with where the interval matches in b, the moa
+#' @export
+#'
+#' @examples
+fill_na_with_moa <- function(a, b) {
+  # get the drug intervals where moa is NA; we don't use gap_output because that would be NA for all pt at the end anyways
+  interval_a <- a %>% pull(PrescriptionInterval_drugnamed)
+  
+  # check interval_a against every interval in b$PrescriptionInterval_moa, to get the index which matches b
+  overlaps <- sapply(interval_a, function(x) {
+    which(x %within% b$PrescriptionInterval_moa)
+  })
+  
+  # for the same drug class there could have been diff drugs taken, so would expect duplicate rows in b_cols
+  b_cols <- b[overlaps,] %>% rename(
+    DrugName_clean_moa = DrugName_clean,
+    duration_moa = duration,
+    gap_output_moa = gap_output
+  ) %>% select(DrugName_clean_moa, duration_moa, gap_output_moa, PrescriptionInterval_moa)
+  
+  # drop those columns from a, and take those columns from b; filled as in the previous NA are now filled with values
+  filled_rows <- a %>% 
+    select(-DrugName_clean_moa, -duration_moa, -gap_output_moa, -PrescriptionInterval_moa) %>% 
+    cbind(b_cols)
+  
+  return(filled_rows)
+}
+
+
+output_list <- list()
+
+
+# 2154976 is the problematic ref
+# ref <- 2154976
+ref <- 1319963
+ref <- 2209539
+debug(fill_na_with_moa)
+fill_na_with_moa(a, b)
+View(a)
+
+merged_df %>% filter(ReferenceKey == 2154976) %>% View()
+
+
+
+for (ref in unique(na_rows$ReferenceKey)) {
+  # create the two rows with refkey, only for that pt
+  # taken from na_rows since that has already been filtered
+  
+  a <- na_rows %>% filter(ReferenceKey == ref) 
+  b <- moanamed_df %>% filter(ReferenceKey == ref)
+  
+  # append the output to the list
+  output_list <- c(output_list, list(fill_na_with_moa(a, b)))
+}
+
+# combine all the elements in the list into a single data frame
+output_df <- bind_rows(output_list)
+
+
+
+
+
+
+a %>% pull(ReferenceKey)
+anti_join(merged_df_drugnamed, moanamed_df, by = "ReferenceKey") %>% View()
+
+merged_df_drugnamed %>% pull(ReferenceKey) %>% unique()
+moanamed_df %>% pull(ReferenceKey) %>% unique()
+
+
+
+
+
+
+
 
 
 # calculate days before the use of b/tsDMARD (we don't worry about csDMARD most of the time)--------------------------------
@@ -814,7 +990,6 @@ merged_df <- left_join(merged_df,
 merged_df$first_ra <- as.Date(merged_df$first_ra)
 
 # sensibility check: why some pts receive prescription before their date of first dx with RA?
-
 # return the FALSE ones because you would expect first_ra <= prescriptionstartdate
 
 # you would expect that first_ra is smaller or equal to prescriptionstartdate since we have already excluded, earlier, those who have conditions other than RA which indicate the use of biologics. 
@@ -933,14 +1108,21 @@ merged_df <- merged_df %>%
 # print(temp %>% filter(is.na(days_to_btsdmard)), n = 200)
 
 
-# View(merged_df %>% filter(ReferenceKey == 1006299))
+# combine scores_df with merged_df ----------------------------------------
+merged_df <- dplyr::full_join(merged_df, scores_df, by = c("ReferenceKey" = "Reference.Key."))
 
 
-
-# add the weighting scores at RA diagnosis
-
+# 1: How long patients can use b/ts DMARDs in Hong Kong, potentially stratified by years to illustrate the improved uptake rate (My personal guesswork is new patients such as diagnosis in 2019 should access to b/ts DMARDs faster than old patients diagnosis in 2009)
 
 
+# 2: Among b/ts DMARDs, which one is prefered by local clinicians as first/second line option? Could also stratified by years to demonstrate the change of market share as time goes by (For example, i know the use of infliximab is decreasing year by year)
+
+# for this would need to table without changing into MoA
+
+
+# 3: The access time and uptake rate of biosimilars in Hong Kong
+
+merged_df %>% pull(DrugName_clean) %>% unique()
 
 
 
@@ -1018,7 +1200,6 @@ combo_colors <- c("cdmard+jaki" = "#3c1a61",
 # Combine the two palettes
 drug_colors <- c(single_colors, combo_colors)
 
-
 # Create a new column in the dataframe that assigns the correct color to each drug
 df$color <- drug_colors[df$drug]
 
@@ -1076,11 +1257,13 @@ df <- prescription_traj %>% filter(ReferenceKey == 10226382) # triple
 df <- prescription_traj %>% filter(ReferenceKey == 10069729) # triple
 
 
+# label pt with 1st, 2nd line tx ------------------------------------------
 
-extract_traj(df)
+# use mutate and case_when a hierarchy starting with more 3rd line
 
-# table(prescription_traj$DrugName_clean)
-# table(prescription_traj$moa)
+# get a label per pt whether first, second, or third-line tx used (useful for all forms of plotting including stratifying the weighting score later; but cannot have reduced the cDMARD, need to have the drug names (so we know if 2 cDMARD are used → second-phase of treatment already)
+
+
 
 
 # create the function to extract the treatment trajectory; function should be able to apply on class of drug, but also later on the moa
@@ -1101,6 +1284,10 @@ extract_traj(df)
 
 
 
+
+
+
+# rough -------------------------------------------------------------------
 # Count the number of unique drugs for each patient and filter for patients with 3 or more unique drugs
 patients_with_3_or_more_drugs <- prescription_traj %>%
   group_by(ReferenceKey) %>%
@@ -1115,21 +1302,6 @@ prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[4]) #
 prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[6]) # last row called "Keep Record Only" ?
 prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[10]) # seemingly hydroxychloroquine + methotrexate → etanercept + methotrexate
 
-
-
-View(prescription_traj)
-View(prescription_traj[, c("ReferenceKey", "PrescriptionStartDate", "PrescriptionEndDate", "DrugName", "DrugName_clean")])
-
-# but after grepping the brandname, you STILL want other medications taken by the same pt, because this will tell us whether the pt switched drug, or took additional drugs
-# prescription_sub <- prescription %>% filter(ReferenceKey %in% pt_with_labelled_brand)
-
-
-
-
-
-
-
-# rough -------------------------------------------------------------------
 # grepping the brand name
 # pt_with_labelled_brand <- prescription %>% 
 #   filter(grepl(pattern = paste(unique(bio_df$`Brand name`), collapse = "|"),
