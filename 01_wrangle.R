@@ -255,6 +255,7 @@ print(paste0(
 diagnosis_sub <- diagnosis_sub %>% 
   filter(!Reference.Key. %in% unwanted_ra)
 
+diagnosis_sub$Patient.Type..IP.OP.A.E.. <- trimws(diagnosis_sub$Patient.Type..IP.OP.A.E..)
 
 # get weighting score -----------------------------------------------------
 # weight_df
@@ -746,6 +747,8 @@ prescription_traj <- prescription_traj %>%
 
 df <- prescription_traj
 
+
+
 Ref <- 2209539
 df <- df %>% filter(ReferenceKey == Ref)
 df <- df %>% arrange(ReferenceKey, PrescriptionStartDate) %>% head(10000)
@@ -764,21 +767,6 @@ df %>% filter(ReferenceKey == Ref) %>% extract_traj()
 df %>% filter(ReferenceKey == Ref) %>% mutate(DrugName_clean = moa) %>% extract_traj()
 
 df %>% filter(ReferenceKey == Ref)
-
-
-
-# Remove smaller intervals that are completely inclusive of another interval and of the same drug
-prescription_traj %>%
-  filter(ReferenceKey == 1319963) %>% 
-  arrange(PrescriptionStartDate) %>% 
-  group_by(ReferenceKey, DrugName_clean) %>% 
-  mutate(next_start_date = lead(PrescriptionStartDate),
-         next_end_date = lead(PrescriptionEndDate)) %>% 
-  # select(PrescriptionStartDate, PrescriptionEndDate, DrugName_clean, next_start_date, next_end_date) %>% arrange(PrescriptionStartDate) %>% print(n = 100) %>%  # only for purpose of debugging this line
-  ungroup() %>% 
-  filter(next_start_date != PrescriptionEndDate | is.na(next_start_date)) %>% # so if next start date is not equal to prescription end date, or next start date is NOT empty (as in the last row) would remove; hence if next start date is empty
-  select(-c(next_start_date, next_end_date)) %>% mutate(DrugName_clean = moa) %>% extract_traj()
-
 
 
 
@@ -863,9 +851,13 @@ moanamed_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df
 
 # now to merge them would lead to duplicate rows in moanamed; so later if need to convert back to moa just use distinct
 
+
+# merge the drug name with drug moa, so redundant rows for moa ------------
 # Create a new column in merged_df_drugnamed with the prescription date range as an interval
 merged_df_drugnamed <- merged_df_drugnamed %>%
   mutate(PrescriptionInterval_drugnamed = interval(PrescriptionStartDate, PrescriptionEndDate))
+
+# merged_df %>% distinct(ReferenceKey)
 
 moanamed_df <- moanamed_df %>% 
   mutate(PrescriptionInterval_moa = interval(PrescriptionStartDate, PrescriptionEndDate))
@@ -929,20 +921,16 @@ fill_na_with_moa <- function(a, b) {
 }
 
 
-output_list <- list()
+filled_rows_list <- list()
 
-
+# for debugging previous cases
 # 2154976 is the problematic ref
 # ref <- 2154976
-ref <- 1319963
-ref <- 2209539
-debug(fill_na_with_moa)
-fill_na_with_moa(a, b)
-View(a)
-
-merged_df %>% filter(ReferenceKey == 2154976) %>% View()
-
-
+# ref <- 2209539
+# debug(fill_na_with_moa)
+# fill_na_with_moa(a, b)
+# View(a)
+# merged_df %>% filter(ReferenceKey == 2154976) %>% View()
 
 for (ref in unique(na_rows$ReferenceKey)) {
   # create the two rows with refkey, only for that pt
@@ -952,29 +940,22 @@ for (ref in unique(na_rows$ReferenceKey)) {
   b <- moanamed_df %>% filter(ReferenceKey == ref)
   
   # append the output to the list
-  output_list <- c(output_list, list(fill_na_with_moa(a, b)))
+  filled_rows_list <- c(filled_rows_list, list(fill_na_with_moa(a, b)))
 }
 
 # combine all the elements in the list into a single data frame
-output_df <- bind_rows(output_list)
+filled_rows_df <- bind_rows(filled_rows_list)
 
+# combine with the rows that are did not have NA
+merged_df <- rbind(merged_df %>% filter(!is.na(DrugName_clean_moa)), filled_rows_df) %>% arrange(ReferenceKey, PrescriptionStartDate, PrescriptionEndDate)
 
+# rename drug, moa, for ease of reference and plotting later
+merged_df <- merged_df %>% 
+  rename(drug = DrugName_clean_drugnamed,
+         moa = DrugName_clean_moa)
 
-
-
-
-a %>% pull(ReferenceKey)
-anti_join(merged_df_drugnamed, moanamed_df, by = "ReferenceKey") %>% View()
-
-merged_df_drugnamed %>% pull(ReferenceKey) %>% unique()
-moanamed_df %>% pull(ReferenceKey) %>% unique()
-
-
-
-
-
-
-
+# saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df.rds")
+merged_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df.rds")
 
 
 # calculate days before the use of b/tsDMARD (we don't worry about csDMARD most of the time)--------------------------------
@@ -983,37 +964,36 @@ btsdmard <- c(tnfi, cd28, cd20, il6, jaki)
 
 # diagnosis_sub is from clean_diagnosis see earlier subtitle of this script
 # join the table to obtain the day of first_ra diagnosis
-merged_df <- left_join(merged_df, 
-          unique(diagnosis_sub[, c("Reference.Key.", "first_ra")]), 
-          by = c("ReferenceKey" = "Reference.Key."))
+merged_df <- left_join(merged_df,
+                       unique(diagnosis_sub[, c("Reference.Key.", 
+                                                "first_ra")]),
+                       by = c("ReferenceKey" = "Reference.Key."))
+
 
 merged_df$first_ra <- as.Date(merged_df$first_ra)
 
-# sensibility check: why some pts receive prescription before their date of first dx with RA?
-# return the FALSE ones because you would expect first_ra <= prescriptionstartdate
+# prescription after vs prescription before ra ----------------------------
+# setting earliest_start_date, so we can separate pt which we want to include in b/tsDMARD analysis
+# row_number returns a column of integers indicating the row number for each row in a group
+# row_number() to identify the first row within each group, and for that row, we set first_ra to the earliest_start_date. For all other rows in each group, we use the same logic as before to set first_ra to the earliest PrescriptionStartDate only if it is later than the current first_ra.
 
 # you would expect that first_ra is smaller or equal to prescriptionstartdate since we have already excluded, earlier, those who have conditions other than RA which indicate the use of biologics. 
-prescription_after_ra <- merged_df %>%
+# sensibility check: why some pts receive prescription before their date of first dx with RA?
+# if FALSE, the cohort which we potentially want to exclude from our analysis
+merged_df <- merged_df %>%
+  arrange(ReferenceKey, PrescriptionStartDate) %>%
   group_by(ReferenceKey) %>%
-  filter(PrescriptionStartDate == min(PrescriptionStartDate)) %>%
-  ungroup() %>% 
-  filter(first_ra <= PrescriptionStartDate) %>% 
-  pull(ReferenceKey)
-
-# the cohort which we potentially want to exclude from our analysis
-prescription_before_ra <- merged_df %>%
-  group_by(ReferenceKey) %>%
-  filter(PrescriptionStartDate == min(PrescriptionStartDate)) %>%
-  ungroup() %>% 
-  filter(first_ra > PrescriptionStartDate) %>% 
-  pull(ReferenceKey)
-
+  mutate(
+    earliest_start_date = min(PrescriptionStartDate),
+    prescription_after_ra = earliest_start_date >= first_ra
+  ) %>%
+  ungroup()
 
 print(paste0("Of the ", length(unique(merged_df$ReferenceKey)), 
              " patients, we would expect that the earliest date of diagnosis of rheumatoid arthritis must have occured before the prescription of any rheumatoid arthritis drugs. This is indeed the case for ", 
-             length(prescription_after_ra), 
+             merged_df %>% filter(prescription_after_ra == TRUE) %>% distinct(ReferenceKey) %>% count(), 
              " patients. However, we found that there were ", 
-             length(prescription_before_ra), " exceptions in which the patient received RA-related prescription before the earliest date of rheumatoid arthritis diagnosis. These patients will be excluded from our analysis as they affect the reliability of the number of days relapsed since the use of b/tsDMARD."))
+             merged_df %>% filter(prescription_after_ra == FALSE) %>% distinct(ReferenceKey) %>% count(), " exceptions in which the patient received RA-related prescription before the earliest date of rheumatoid arthritis diagnosis. These patients will be excluded from our analysis as they affect the reliability of the number of days relapsed since the use of b/tsDMARD."))
 
 # random <- 5
 # diagnosis_sub %>% filter(Reference.Key. == prescription_before_ra[random]) %>% arrange(Reference.Date.)
@@ -1023,21 +1003,6 @@ print(paste0("Of the ", length(unique(merged_df$ReferenceKey)),
 # View(diagnosis_sub %>% filter(Reference.Key. == prescription_before_ra[random]) %>% arrange(Reference.Date.))
 # View(prescription_sub %>% filter(ReferenceKey == prescription_before_ra[random]) %>% select(ReferenceKey, PrescriptionStartDate, PrescriptionEndDate, DrugName) %>% arrange(PrescriptionStartDate))
 
-
-
-
-# days till first prescription
-# setting earliest_start_date, so we can separate pt which we want to include in b/tsDMARD analysis
-# row_number returns a column of integers indicating the row number for each row in a group
-# row_number() to identify the first row within each group, and for that row, we set first_ra to the earliest_start_date. For all other rows in each group, we use the same logic as before to set first_ra to the earliest PrescriptionStartDate only if it is later than the current first_ra.
-merged_df <- merged_df %>%
-  arrange(ReferenceKey, PrescriptionStartDate) %>%
-  group_by(ReferenceKey) %>%
-  mutate(
-    earliest_start_date = min(PrescriptionStartDate),
-    prescription_after_ra = earliest_start_date >= first_ra
-  ) %>%
-  ungroup()
 
 # code if we decided to just modify and go with the pseudo-dx date instead
 # merged_df %>%
@@ -1069,9 +1034,6 @@ table(range_vec)
 # merged_df %>% mutate(days_to_first_drug = difftime(first_ra, earliest_start_date, units = "days"))
 #
 
-options(max.print = 50)
-# just to hv an idea of the distribution of values
-merged_df %>% pull(DrugName_clean) %>% table()
 
 # days till first cdmard
 # negative would be FALSE for prescription_after_ra

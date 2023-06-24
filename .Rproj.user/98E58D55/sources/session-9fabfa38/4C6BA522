@@ -3,9 +3,9 @@
     "path": "~/Documents/GitHub/rheumatoid/01_wrangle.R",
     "project_path": "01_wrangle.R",
     "type": "r_source",
-    "hash": "2244940986",
+    "hash": "0",
     "contents": "",
-    "dirty": false,
+    "dirty": true,
     "created": 1687410703683.0,
     "source_on_save": false,
     "relative_order": 1,
@@ -13,15 +13,15 @@
         "tempName": "Untitled1",
         "source_window_id": "",
         "Source": "Source",
-        "cursorPosition": "810,0",
-        "scrollLine": "807"
+        "cursorPosition": "1071,61",
+        "scrollLine": "1058"
     },
-    "folds": "0|28|26|0|\n27|32|46|0|\n47|34|51|0|\n52|61|132|0|\n133|18|257|0|\n258|22|370|0|\n516|165|534|0|\n535|45|697|0|\n698|29|731|0|\n906|36|928|0|\n",
-    "lastKnownWriteTime": 1687613692,
+    "folds": "0|28|26|0|\n27|32|46|0|\n47|34|51|0|\n52|61|132|0|\n133|18|258|0|\n259|22|371|0|\n372|23|463|0|\n464|59|516|0|\n517|165|535|0|\n536|45|698|0|\n699|29|732|0|\n733|63|771|0|\n898|36|920|0|\n1131|41|1250|0|\n1251|33|1280|0|\n1281|8|1319|0|\n",
+    "lastKnownWriteTime": 1687618554,
     "encoding": "UTF-8",
     "collab_server": "",
     "source_window": "",
-    "last_content_update": 1687613692584,
+    "last_content_update": 1687621803687,
     "read_only": false,
     "read_only_alternatives": []
 }
