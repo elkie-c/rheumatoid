@@ -8,6 +8,7 @@ librarian::shelf(haven,
                  mgsub, #for multiple substitutions
                  readxl, # read the excel drug list
                  hrbrthemes, 
+                 RColorBrewer,
                  ggalluvial, # treatment trajectory sankey)
                  plotly # heatmaps
 )
@@ -515,7 +516,7 @@ prescription_traj <- prescription_traj %>%
 
 
 
-# question 1: Uptake of b/tsDMARDs (stratified by mode of action and bio-originator / biosimilars) by year (2010-2022) among patients with rheumatoid arthritis (RA);-------------------------------------
+# question 1: Uptake of b/tsDMARDs (stratified by mode of action and bio-originator / biosimilars) by year (2010-2022) among patients with rheumatoid arthritis (RA); ended up using EXCEL instead-------------------------------------
 
 # number of pts in our subsetted data is 16727
 length(unique(prescription_traj$ReferenceKey))
@@ -529,7 +530,6 @@ select(ReferenceKey, bioo_or_bios, DrugName_clean) %>%
   summarise(count = n())
 
 print(df, n = 27)
-
 
 saveRDS(object = prescription_traj, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/prescription_traj.rds")
 # readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/prescription_traj.rds")
@@ -743,7 +743,18 @@ prescription_traj <- prescription_traj %>%
     )
   )
 
+
+
 # prescription_traj %>% filter(ReferenceKey == 2154976) %>% arrange(PrescriptionStartDate) %>% tail()
+
+# this line to give extra info if O or S being used
+prescription_traj <- prescription_traj %>%
+  mutate(DrugName_clean_os = case_when(
+    bioo_or_bios == "o" ~ paste0(DrugName_clean, "_o"),
+    bioo_or_bios == "s" ~ paste0(DrugName_clean, "_s"),
+    TRUE ~ DrugName_clean
+  ))
+
 
 df <- prescription_traj
 
@@ -774,62 +785,12 @@ df %>% filter(ReferenceKey == Ref)
 # this line commented out but would have changed the analysis by MoA instead of DrugName_clean thereafter
 # df$DrugName_clean <- df$moa
 
-prescription_traj_list <- split(df, f = df$ReferenceKey)
-
-# extract_traj(prescription_traj_list[[170]])
-# prescription_traj_list[[180]]
-# extract_traj(prescription_traj_list[[180]])
-# temp_list <- lapply(X = prescription_traj_list[160:170], FUN = extract_traj)
-# extract_traj(prescription_traj_list[["10140118"]])
-
-# debug(extract_traj)
-# undebug(gap_merge_per_drug)
-# extract_traj(prescription_traj_list[["2154976"]]) %>% View()
-# extract_traj(prescription_traj_list[["1319963"]]) %>% View()
-
-# df %>% filter(ReferenceKey == 2154976) %>% tail()
-# prescription_traj %>% filter(ReferenceKey == 2154976) %>% View()
-# prescription_traj %>% filter(ReferenceKey == 2154976) %>% pull(DrugName_clean)
-# df %>% filter(ReferenceKey == 2154976) %>% pull(DrugName_clean)
+# UNCOMMENT THIS LINE TO GET BY O or S DF----------------------------
+# so have to rerun from this line on to generate different df; the custom functions just use DrugName_clean so it would be too troublesome if we put in this as a new column instead
+# df$DrugName_clean <- df$DrugName_clean_os
 
 
-# need to have loaded the functions from 02_functions.R to run this
-# takes 7 minutes to run on 16707 pts
-temp_list <- lapply(X = prescription_traj_list, FUN = extract_traj)
-# temp_list[["1007790"]]
-
-
-# Define a function to add the ReferenceKey column which is now the name of the list
-add_reference_key <- function(df, key) {
-  df$ReferenceKey <- key
-  return(df)
-}
-
-# Use pmap to apply the function to each data frame in the list
-temp_list <- pmap(list(temp_list, names(temp_list)), add_reference_key)
-
-# Merge all the data frames together
-merged_df <- bind_rows(temp_list)
-
-# don't want the seconds
-# Extract the date component from the PrescriptionStartDate and PrescriptionEndDate columns
-merged_df$PrescriptionStartDate <- as.Date(merged_df$PrescriptionStartDate)
-merged_df$PrescriptionEndDate <- as.Date(merged_df$PrescriptionEndDate)
-
-merged_df$duration <-
-  as.numeric(
-    difftime(
-      merged_df$PrescriptionEndDate,
-      merged_df$PrescriptionStartDate,
-      units = "secs"
-    )
-  ) / 86400
-
-# Reorder the columns
-merged_df <- merged_df %>%
-  select(ReferenceKey, everything())
-
-
+source("/Users/elsiechan/Documents/GitHub/rheumatoid/02_extract_traj.R")
 
 unique(merged_df$DrugName_clean)
 table(merged_df$DrugName_clean)
@@ -837,125 +798,49 @@ table(merged_df$DrugName_clean)
 # merged_df_drugnamed %>% filter(ReferenceKey == 1007790)
 
 
-
 # so the drugnamed would be when I didn't run this line prescription_traj$DrugName_clean <- prescription_traj$moa
 # saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_drugnamed.rds")
 # saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_moanamed.rds")
-
+# saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_drugnamed_os.rds")
 
 
 merged_df_drugnamed <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_drugnamed.rds")
 moanamed_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_moanamed.rds")
+merged_df_drugnamed_os <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_drugnamed_os.rds")
 
 # moanamed has fewer rows than merged_df, is the reduced version; so we can join, and let it contain redundant information for now
 
 # now to merge them would lead to duplicate rows in moanamed; so later if need to convert back to moa just use distinct
 
 
-# merge the drug name with drug moa, so redundant rows for moa ------------
-# Create a new column in merged_df_drugnamed with the prescription date range as an interval
-merged_df_drugnamed <- merged_df_drugnamed %>%
-  mutate(PrescriptionInterval_drugnamed = interval(PrescriptionStartDate, PrescriptionEndDate))
+# merge the drug name with moa, so redundant rows for moa (REPEATED already to merge all three dfs together, merged_df_drugnamed_os, merged_df_drugnamed, then moanamed_df)------------
 
-# merged_df %>% distinct(ReferenceKey)
+merged_df_drugnamed
+df1 <- merged_df_drugnamed_os
+df2 <- merged_df_drugnamed
 
-moanamed_df <- moanamed_df %>% 
-  mutate(PrescriptionInterval_moa = interval(PrescriptionStartDate, PrescriptionEndDate))
+merged_df
+suffix <- c("_1", "_2")
 
-# first step use left join so drugnames are all present, but have NA columns in moanamed_df
-merged_df <- merged_df_drugnamed %>% left_join(
-  moanamed_df,
-  by = c(
-    "ReferenceKey",
-    "PrescriptionStartDate",
-    "PrescriptionEndDate"
-  ),
-  suffix = c("_drugnamed", "_moa")
-)
-
-
-# merged_df_drugnamed %>% filter(ReferenceKey == 1319963) %>% print(n = 100)
-# moanamed_df %>% filter(ReferenceKey == 1319963) %>% print(n = 100)
-# merged_df %>% filter(ReferenceKey == 1319963) %>% print(n = 100)
-
-
-
-# take the ones with NA (i.e. the entries that did not match) from merged_df, filter them out first
-na_rows <- merged_df %>% filter(is.na(DrugName_clean_moa))
-
-
-
-# for each ReferenceKey in that filtered merged_df, also grab the rows from moanamed_df
-
-#' fill_na_with_moa
-#'
-#' @param a take the same Referencekey pt with NA entries, from the na_rows
-#' @param b from the same ReferenceKey, the entire moa 
-#'
-#' @return a but instead of NA, those are filled with where the interval matches in b, the moa
-#' @export
-#'
-#' @examples
-fill_na_with_moa <- function(a, b) {
-  # get the drug intervals where moa is NA; we don't use gap_output because that would be NA for all pt at the end anyways
-  interval_a <- a %>% pull(PrescriptionInterval_drugnamed)
-  
-  # check interval_a against every interval in b$PrescriptionInterval_moa, to get the index which matches b
-  overlaps <- sapply(interval_a, function(x) {
-    which(x %within% b$PrescriptionInterval_moa)
-  })
-  
-  # for the same drug class there could have been diff drugs taken, so would expect duplicate rows in b_cols
-  b_cols <- b[overlaps,] %>% rename(
-    DrugName_clean_moa = DrugName_clean,
-    duration_moa = duration,
-    gap_output_moa = gap_output
-  ) %>% select(DrugName_clean_moa, duration_moa, gap_output_moa, PrescriptionInterval_moa)
-  
-  # drop those columns from a, and take those columns from b; filled as in the previous NA are now filled with values
-  filled_rows <- a %>% 
-    select(-DrugName_clean_moa, -duration_moa, -gap_output_moa, -PrescriptionInterval_moa) %>% 
-    cbind(b_cols)
-  
-  return(filled_rows)
-}
-
-
-filled_rows_list <- list()
-
-# for debugging previous cases
-# 2154976 is the problematic ref
-# ref <- 2154976
-# ref <- 2209539
-# debug(fill_na_with_moa)
-# fill_na_with_moa(a, b)
-# View(a)
-# merged_df %>% filter(ReferenceKey == 2154976) %>% View()
-
-for (ref in unique(na_rows$ReferenceKey)) {
-  # create the two rows with refkey, only for that pt
-  # taken from na_rows since that has already been filtered
-  
-  a <- na_rows %>% filter(ReferenceKey == ref) 
-  b <- moanamed_df %>% filter(ReferenceKey == ref)
-  
-  # append the output to the list
-  filled_rows_list <- c(filled_rows_list, list(fill_na_with_moa(a, b)))
-}
-
-# combine all the elements in the list into a single data frame
-filled_rows_df <- bind_rows(filled_rows_list)
-
-# combine with the rows that are did not have NA
-merged_df <- rbind(merged_df %>% filter(!is.na(DrugName_clean_moa)), filled_rows_df) %>% arrange(ReferenceKey, PrescriptionStartDate, PrescriptionEndDate)
+source("/Users/elsiechan/Documents/GitHub/rheumatoid/03_merge_os_drugname_moa.R")
+# col1 <- "DrugName_clean_1"
+# col2 <- "DrugName_clean_2"
 
 # rename drug, moa, for ease of reference and plotting later
 merged_df <- merged_df %>% 
-  rename(drug = DrugName_clean_drugnamed,
-         moa = DrugName_clean_moa)
+  rename(drug_os = DrugName_clean_1,
+         drug = DrugName_clean_2)
+
+df_renamed <- merged_df %>%
+  rename_with(~case_when(
+    stringr::str_ends(.x, "_1") ~ str_remove(.x, "_1") %>% paste0("_os"),
+    stringr::str_ends(.x, "_2") ~ str_remove(.x, "_2") %>% paste0("_drug"),
+    TRUE ~ .x
+  ))
+
 
 # saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df.rds")
-merged_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df.rds")
+# merged_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df.rds")
 
 
 # calculate days before the use of b/tsDMARD (we don't worry about csDMARD most of the time)--------------------------------
@@ -1016,7 +901,8 @@ print(paste0("Of the ", length(unique(merged_df$ReferenceKey)),
 
 # merged_df %>% filter(prescription_after_ra == TRUE) %>% pull(ReferenceKey) %>% unique()
 
-# number of days from dx to prescription of first_ra drug; normally should be positive as prescription comes after dx
+
+# number of days from dx to prescription of first_ra drug; normally should be positive as prescription comes after dx ------------------------------------------------------------------
 merged_df$dx_to_prescription <- merged_df$earliest_start_date - merged_df$first_ra
 
 # if negative, it means RA ICD diagnosis came after the first prescription of RA-related drug
@@ -1030,15 +916,10 @@ range_vec <- cut(as.numeric(num_vec), breaks = c(-Inf, -365, -100, -31, -14, -7,
 table(range_vec)
 
 
-# is just the dx_to_prescription column; already there, no need below line
-# merged_df %>% mutate(days_to_first_drug = difftime(first_ra, earliest_start_date, units = "days"))
-#
-
-
 # days till first cdmard
 # negative would be FALSE for prescription_after_ra
 merged_df <- merged_df %>%
-  filter(DrugName_clean == "cdmard") %>%
+  filter(drug == "cdmard") %>%
   group_by(ReferenceKey) %>% # so would give us earliest startdate by reference key
   mutate(earliest_cdmard_date = min(PrescriptionStartDate)) %>%
   mutate(days_to_cdmard = earliest_cdmard_date - first_ra) %>%
@@ -1046,7 +927,6 @@ merged_df <- merged_df %>%
   select(ReferenceKey, days_to_cdmard) %>% 
   full_join(merged_df) # so merged_df gets a new column, which is days_to_cdmard; rather than left_join
 
-# merged_df %>% filter(is.na(days_to_cdmard))
 
 # you should get some NA values because there are patients who did not take cdmard
 # any(is.na(merged_df %>% pull(days_to_cdmard)))
@@ -1057,9 +937,11 @@ merged_df <- merged_df %>%
 # btsdmard is made of (tnfi, cd28, cd20, il6, jaki)
 # merged_df %>% pull(DrugName_clean) %>% unique()
 
+btsdmard_class <- c("jaki", "tnfi", "cd20", "cd28", "il6")
+
 merged_df <- merged_df %>% 
-  filter(grepl(pattern = paste(c("jaki", "tnfi", "cd20", "cd28", "il6"), collapse = "|"),
-               x = DrugName_clean)) %>%
+  filter(grepl(pattern = paste(btsdmard_class, collapse = "|"),
+               x = moa)) %>%
   group_by(ReferenceKey) %>% 
   mutate(earliest_btsdmard_date = min(PrescriptionStartDate)) %>% 
   mutate(days_to_btsdmard = earliest_btsdmard_date - first_ra) %>%
@@ -1067,24 +949,160 @@ merged_df <- merged_df %>%
   select(ReferenceKey, days_to_btsdmard) %>% 
   full_join(merged_df)
 
+merged_df$days_to_btsdmard <- as.numeric(merged_df$days_to_btsdmard)
+merged_df$days_to_cdmard <- as.numeric(merged_df$days_to_cdmard)
+
 # print(temp %>% filter(is.na(days_to_btsdmard)), n = 200)
+
+# progressive increase the df1, df2, just to speed up
+# saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df2.rds")
+merged_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df2.rds")
 
 
 # combine scores_df with merged_df ----------------------------------------
-merged_df <- dplyr::full_join(merged_df, scores_df, by = c("ReferenceKey" = "Reference.Key."))
+# if you used full_join, will have a lot of NA rows from scores_df
+merged_df <- dplyr::left_join(merged_df, scores_df, by = c("ReferenceKey" = "Reference.Key."))
+
+# scores_df %>% 
+#   summarize(n_unique_References = n_distinct(Reference.Key.))
+# merged_df %>% 
+#   summarize(n_unique_References = n_distinct(ReferenceKey))
 
 
-# 1: How long patients can use b/ts DMARDs in Hong Kong, potentially stratified by years to illustrate the improved uptake rate (My personal guesswork is new patients such as diagnosis in 2019 should access to b/ts DMARDs faster than old patients diagnosis in 2009)
+# 1: How long patients can use b/ts DMARDs in Hong Kong, potentially stratified by years to illustrate the improved uptake rate (My personal guesswork is new patients such as diagnosis in 2019 should access to b/ts DMARDs faster than old patients diagnosis in 2009)----------------
+
+# Extract the year of diagnosis of the RA
+merged_df$first_ra_year <- format(merged_df$first_ra, "%Y")
+
+merged_df$years_to_btsdmard <- as.numeric(merged_df$days_to_btsdmard / 365.25)
+
+# summarize solves the issue where for the same first_ra value the value seems to pile up and give a erroneous num for days to btsdmard
+merged_df_days <- merged_df %>% 
+  filter(prescription_after_ra == TRUE) %>% 
+  distinct(ReferenceKey, .keep_all = TRUE) %>% 
+  group_by(first_ra) %>%
+  summarize(mean_days_to_btsdmard = mean(days_to_btsdmard),
+            mean_days_to_cdmard = mean(days_to_cdmard))
 
 
-# 2: Among b/ts DMARDs, which one is prefered by local clinicians as first/second line option? Could also stratified by years to demonstrate the change of market share as time goes by (For example, i know the use of infliximab is decreasing year by year)
+# Create a bar chart of days_to_btsdmard, stratified by year of diagnosis of the RA
+# tunable parameters include y = years_to_btsdmard, x = first_ra, first_ra_year
+ggplot(
+  data = merged_df_days %>% filter(!is.na(mean_days_to_btsdmard)),
+  aes(x = first_ra, y = mean_days_to_btsdmard)
+) +
+  geom_col() +
+  labs(title = "Days to btsdmard by Date of Diagnosis of RA",
+       x = "Date of Diagnosis of RA", y = "Days to btsdmard")
 
-# for this would need to table without changing into MoA
+# merged_df_days %>% pull(days_to_btsdmard)
+# merged_df_days %>% pull(first_ra) %>% table()
+
+# change the variables for ease of plotting
+x_var <- "first_ra_year"
+x_label <- "Year of Diagnosis of RA"
+x_var <- "first_ra"
+x_label <- "Date of Diagnosis of RA"
+
+y_var <- "mean_days_to_cdmard"
+y_label <- "Mean Days to cDMARD"
+y_var <- "mean_days_to_btsdmard"
+y_label <- "Mean Days to btsDMARD"
+
+df <- merged_df_days %>% filter(!is.na(mean_days_to_btsdmard))
+df <- merged_df_days %>% filter(!is.na(mean_days_to_cdmard))
+
+
+# Plot the y_var by x_var with gridlines, modified colors, and minor gridlines
+ggplot(
+  data = df,
+  aes(x = !!sym(x_var), y = !!sym(y_var))
+) +
+  # ylim(min(merged_df_days$days_to_btsdmard, na.rm = TRUE),
+  #      max(merged_df_days$days_to_btsdmard, na.rm = TRUE)) +
+  geom_col(fill = "#0072B2", color = "#333333") +
+  labs(title = paste0("Days to ", y_label, " by ", x_label),
+       x = x_label, y = y_label) +
+  scale_fill_manual(values = c("#0072B2")) +
+  theme_classic() +
+  theme(panel.grid.major = element_line(color = "#DDDDDD"),
+        panel.grid.minor = element_line(color = "#EEEEEE", linetype = "dashed"),
+        panel.background = element_rect(fill = "#F5F5F5"),
+        axis.line = element_line(color = "#333333"),
+        axis.text = element_text(color = "#333333", size = 12),
+        axis.title = element_text(color = "#333333", size = 14, face = "bold"),
+        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+        legend.position = "none")
+
+
+ggsave("my_plot.svg", my_plot, device = "svg")
+# Save the ggplot object in PNG format
+ggsave("my_plot.png", my_plot, device = "png", dpi = 300)
+
+# 2: Among b/ts DMARDs, which one is preferred by local clinicians as first/second line option? Could also stratified by years to demonstrate the change of market share as time goes by (For example, i know the use of infliximab is decreasing year by year)----------------
+# obtain first btsdmard
+first_btsdmard_df <- merged_df %>%
+  # filter(ReferenceKey == 10024714 | ReferenceKey == 100096) %>% 
+  group_by(ReferenceKey) %>%
+  filter(grepl(pattern = paste(btsdmard, collapse = "|"), 
+                    x = drug)) %>%
+  slice_min(PrescriptionStartDate) %>%
+  ungroup() 
+
+# first_btsdmard_df$drug[1] <- "ETANERCEPT+ABATACEPT+INFLIXIMAB+cdmard"
+
+first_btsdmard_df <- first_btsdmard_df %>%
+  mutate(first_btsdmard_list = stringr::str_extract_all(drug, paste(btsdmard, collapse = "|"))) %>% 
+  unnest(first_btsdmard_list) %>%
+  group_by(ReferenceKey) %>%
+  summarize(first_btsdmard = paste(first_btsdmard_list, collapse = "+")) 
+
+
+# Join the first_btsdmard_df with merged_df
+merged_df <- merged_df %>%
+  left_join(first_btsdmard_df, by = "ReferenceKey")
+
+
+merged_df_proportions <- merged_df %>%
+  filter(!is.na(first_btsdmard)) %>% 
+  group_by(first_ra_year, first_btsdmard) %>%
+  summarize(n = n()) %>%
+  group_by(first_ra_year) %>%
+  mutate(prop = n / sum(n))
+
+print(merged_df_proportions, n = 200)
+
+ggplot(
+  data = merged_df_proportions,
+  aes(x = first_ra_year, y = prop, color = first_btsdmard, group = first_btsdmard)
+) +
+  geom_smooth(method = "loess", se = FALSE, span = 1) +
+  labs(
+    title = "Proportion of First btsDMARD by Drug and Year",
+    x = "Year of Diagnosis of RA",
+    y = "Proportion of First btsDMARD",
+    color = "First btsDMARD Drug"
+  ) +
+  scale_color_discrete(name = "First btsDMARD Drug") +
+  scale_x_discrete(
+    breaks = seq(min(merged_df_proportions$first_ra_year), max(merged_df_proportions$first_ra_year), by = 5)
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.position = "right"
+  )
 
 
 # 3: The access time and uptake rate of biosimilars in Hong Kong
+View(merged_df)
 
+# how to modify the code, such that reflect if pt is taking bioo or bios, or both? If there was a switch; would treatment trajectory need to reflect that no only prognosis
 merged_df %>% pull(DrugName_clean) %>% unique()
+
+
 
 
 
@@ -1092,9 +1110,15 @@ merged_df %>% pull(DrugName_clean) %>% unique()
 # filter to only include when tx duration > 30 days (for continuous period) to be considered significant
 
 
-# batched ideas as follows:
-# filter based on duration and consider removing if less than a threshold
-# apply again gap_merge_per_drug so recalculate the gap and then merge based on threshold again
+
+# 4: time of starting btsdmard and prognosis score ------------------------
+
+
+
+
+# 5: change in score over time stratified by use of bios vs bioo -------------
+
+
 
 
 
