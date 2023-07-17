@@ -10,7 +10,9 @@ librarian::shelf(haven,
                  hrbrthemes, 
                  RColorBrewer,
                  ggalluvial, # treatment trajectory sankey)
-                 plotly # heatmaps
+                 plotly, # heatmaps
+                 svglite, # save svgs
+                 MASS # linear regression stepwise
 )
 
 # setwd("/Users/elsiechan/Documents/GitHub/rheumatoid")
@@ -19,11 +21,11 @@ librarian::shelf(haven,
 path <- "/Users/elsiechan/Desktop/kuan_folder"
 
 setwd(path)
-
 death <- readRDS("Death.RDS")
 diagnosis <- readRDS("Diagnosis.RDS")
 inpatient <- readRDS("Inpatient.RDS")
 prescription <- readRDS("Prescription.RDS")
+
 
 
 # read excel sheet of drug list -------------------------------------------
@@ -987,27 +989,69 @@ merged_df$days_to_cdmard <- as.numeric(merged_df$days_to_cdmard)
 
 # print(temp %>% filter(is.na(days_to_btsdmard)), n = 200)
 
-# as of now merged_df2 seems WRONG please jump straight to merged_df3; df3 has for os, drug, and drug_class, but merged_df2 only has for drug and drug_class but not os
-# saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df2.rds")
-merged_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df2.rds")
-
-
 # combine scores_df with merged_df ----------------------------------------
 # if you used full_join, will have a lot of NA rows from scores_df
 merged_df <- dplyr::left_join(merged_df, scores_df, by = c("ReferenceKey" = "Reference.Key."))
 
-# scores_df %>% 
-#   summarize(n_unique_References = n_distinct(Reference.Key.))
-# merged_df %>% 
-#   summarize(n_unique_References = n_distinct(ReferenceKey))
+# there is one random entry with drug prescription in 1900
+merged_df <- merged_df %>% filter(earliest_start_date > 1950)
 
 
-# 1: How long patients can use b/ts DMARDs in Hong Kong, potentially stratified by years to illustrate the improved uptake rate (My personal guesswork is new patients such as diagnosis in 2019 should access to b/ts DMARDs faster than old patients diagnosis in 2009)----------------
+
+# combine death with merged_df --------------------------------------------
+
+
+# death <- readRDS("Death.RDS")
+death <- death %>%
+  rename(main_death = `DeathCause(MainCause)`) %>%
+  rename(death_date = DateofRegisteredDeath)
+
+# had to use this stupid method because death contains some list in some columns, is a complex object
+death_df <- data.frame(ReferenceKey = death$ReferenceKey, 
+                       death_date = death$death_date, 
+                       main_death = death$main_death)
+
+merged_df <- merged_df %>%
+  left_join(death_df, by = "ReferenceKey")
+
+
+# create column for last record (whichever earlier: death date or last PrescriptionStartDate in data (rather than PrescriptionEndDate)  --------
+# pt is still alive then take our max_date
+# max_date is actually july 11th which is way after the data was downloaded - but this is not expected to have a effect on our data
+max_date <- max(merged_df$PrescriptionStartDate, na.rm = TRUE)
+
+merged_df <- merged_df %>%
+  group_by(ReferenceKey) %>%
+  mutate(last_record = ifelse(!is.na(death_date), 
+                              as.Date(death_date), # ensure correct formatting 
+                              max_date)) %>% 
+  ungroup() %>% 
+  mutate(last_record = as.Date(last_record))
+
+# merged_df %>% select(main_death)
+# typeof(merged_df)
+# str(merged_df)
+# sapply(merged_df, typeof)
+# merged_df %>% select(ReferenceKey)
+
+
+# days from RA diagnosis to death -----------------------------------------
+merged_df <- merged_df %>%
+  mutate(dx_to_death = ifelse(!is.na(death_date),
+                                difftime(death_date, earliest_start_date, units = "days"),
+                                NA))
+
+# saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df2.rds")
+merged_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df2.rds")
+
+
+# 1a: How long patients can use b/ts DMARDs in Hong Kong, potentially stratified by years to illustrate the improved uptake rate (My personal guesswork is new patients such as diagnosis in 2019 should access to b/ts DMARDs faster than old patients diagnosis in 2009)----------------
 
 # Extract the year of diagnosis of the RA
 merged_df$first_ra_year <- format(merged_df$first_ra, "%Y")
 
 merged_df$years_to_btsdmard <- as.numeric(merged_df$days_to_btsdmard / 365.25)
+merged_df$years_to_cdmard <- as.numeric(merged_df$days_to_cdmard / 365.25)
 
 # summarize solves the issue where for the same first_ra value the value seems to pile up and give a erroneous num for days to btsdmard
 merged_df_days <- merged_df %>% 
@@ -1017,23 +1061,23 @@ merged_df_days <- merged_df %>%
   summarize(mean_days_to_btsdmard = mean(days_to_btsdmard),
             mean_days_to_cdmard = mean(days_to_cdmard))
 
-
-# Create a bar chart of days_to_btsdmard, stratified by year of diagnosis of the RA
-# tunable parameters include y = years_to_btsdmard, x = first_ra, first_ra_year
-ggplot(
-  data = merged_df_days %>% filter(!is.na(mean_days_to_btsdmard)),
-  aes(x = first_ra, y = mean_days_to_btsdmard)
-) +
-  geom_col() +
-  labs(title = "Days to btsdmard by Date of Diagnosis of RA",
-       x = "Date of Diagnosis of RA", y = "Days to btsdmard")
+# 
+# # Create a bar chart of days_to_btsdmard, stratified by year of diagnosis of the RA
+# # tunable parameters include y = years_to_btsdmard, x = first_ra, first_ra_year
+# ggplot(
+#   data = merged_df_days %>% filter(!is.na(mean_days_to_btsdmard)),
+#   aes(x = first_ra, y = mean_days_to_btsdmard)
+# ) +
+#   geom_col() +
+#   labs(title = "Days to btsdmard by Date of Diagnosis of RA",
+#        x = "Date of Diagnosis of RA", y = "Days to btsdmard")
 
 # merged_df_days %>% pull(days_to_btsdmard)
 # merged_df_days %>% pull(first_ra) %>% table()
 
 # change the variables for ease of plotting
-x_var <- "first_ra_year"
-x_label <- "Year of Diagnosis of RA"
+# x_var <- "first_ra_year"
+# x_label <- "Year of Diagnosis of RA"
 x_var <- "first_ra"
 x_label <- "Date of Diagnosis of RA"
 
@@ -1042,12 +1086,13 @@ y_label <- "Mean Days to cDMARD"
 y_var <- "mean_days_to_btsdmard"
 y_label <- "Mean Days to btsDMARD"
 
-df <- merged_df_days %>% filter(!is.na(mean_days_to_btsdmard))
+
 df <- merged_df_days %>% filter(!is.na(mean_days_to_cdmard))
+df <- merged_df_days %>% filter(!is.na(mean_days_to_btsdmard))
 
 
 # Plot the y_var by x_var with gridlines, modified colors, and minor gridlines
-ggplot(
+my_plot <- ggplot(
   data = df,
   aes(x = !!sym(x_var), y = !!sym(y_var))
 ) +
@@ -1067,10 +1112,110 @@ ggplot(
         plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
         legend.position = "none")
 
+my_plot
 
-ggsave("my_plot.svg", my_plot, device = "svg")
+ggsave(paste0(path, "/charts/", "bar_", y_var, ".svg"), my_plot, device = "svg")
+ggsave(paste0(path, "/charts/", "bar_", y_var, ".png"), my_plot, device = "png", dpi = 300)
+
+
+# 1b # plot the scatter chart to find out any relationship between days to cdmard and days to bdmard----------------------------------------------------------------------
+
+# getting some descriptive statistics
+temp1 <- merged_df %>% 
+  filter(prescription_after_ra == TRUE) %>% 
+  # filter(!is.na(days_to_cdmard)) %>% 
+  # filter(!is.na(days_to_btsdmard)) %>% 
+  distinct(ReferenceKey) %>% 
+  nrow()
+
+temp2 <- merged_df %>% 
+  filter(prescription_after_ra == TRUE) %>% 
+  filter(!is.na(days_to_cdmard)) %>%
+  # filter(!is.na(days_to_btsdmard)) %>% 
+  distinct(ReferenceKey) %>% 
+  nrow()
+
+temp3 <- merged_df %>% 
+  filter(prescription_after_ra == TRUE) %>% 
+  # filter(!is.na(days_to_cdmard)) %>% 
+  filter(!is.na(days_to_btsdmard)) %>%
+  distinct(ReferenceKey) %>% 
+  nrow()
+
+temp4 <- merged_df %>% 
+  filter(prescription_after_ra == TRUE) %>% 
+  filter(!is.na(days_to_cdmard)) %>%
+  filter(!is.na(days_to_btsdmard)) %>%
+  distinct(ReferenceKey) %>% 
+  nrow()
+
+print(paste0("For the following analysis, on whether days from diagnosis to cDMARD and bDMARD can predict mortality, we only included patients who received prescription after rheumatoid arthritis. By including patients who received prescription before the diagnosis, our baseline multimorbidity index would have failed to reflect the baseline condition of the patient, and may have been influenced by the effect of the medication. Among the ", temp1, " number of patients were diagnosed before prescription of rheumatoid arthritis-related drug, there were, at some point of their treatment trajectory, ", temp2, " patients who received cDMARD and ", temp3, " who received btsDMARD, and ", temp4, " who received both, not necessarily concurrently."))
+
+df <- merged_df %>% 
+  filter(prescription_after_ra == TRUE) %>% 
+  filter(!is.na(days_to_cdmard)) %>% 
+  filter(!is.na(days_to_btsdmard)) %>% 
+  distinct(ReferenceKey, .keep_all = TRUE)
+
+# Find the maximum value of either column
+max_years <- max(pmax(df$years_to_cdmard, df$years_to_btsdmard), na.rm = TRUE)
+max_years <- max_years + 1 # for more clarity
+
+my_plot <- ggplot(df, aes(x = years_to_cdmard, y = years_to_btsdmard, color = score_before_0)) +
+  geom_point(na.rm = TRUE, size = 0.9, alpha = 0.9) +
+  labs(x = "Years to cdmard", y = "Years to btsdmard",
+       title = "Relationship between years to btsdmard and cdmard") +
+  theme(plot.title = element_text(size = 15, face = "bold")) +
+  scale_x_continuous(limits = c(0, max_years), 
+                     breaks = seq(0, max_years, by = 5), expand = c(0, 0)) +
+  scale_y_continuous(limits = c(0, max_years), 
+                     breaks = seq(0, max_years, by = 5), expand = c(0, 0)) +
+  scale_color_gradient(low = "#F5B7B0", high = "#00008B", 
+                       na.value = "gray80") +
+  guides(color = guide_colorbar(title = "Multimorbidity Index at \n time of diagnosis"))
+
+my_plot
+
+ggsave(paste0(path, "/charts/", "scatter_", "yrs_to_drug", ".svg"), my_plot, device = "svg")
 # Save the ggplot object in PNG format
-ggsave("my_plot.png", my_plot, device = "png", dpi = 300)
+ggsave(paste0(path, "/charts/", "scatter_", "yrs_to_drug", ".png"), my_plot, device = "png", dpi = 300)
+
+
+
+# 1c: using years_to_cdmard and years_to_bts_dmard correcting for score_before_0 to predict dx_to_death
+
+# continue to use the df from 1b so we omit the na values for either
+# Fit linear regression model with years_to_cdmard as predictor and score_before_0 as a covariate
+model_cdmard <- lm(dx_to_death ~ score_before_0 + years_to_cdmard, data = df)
+summary(model_cdmard)
+
+# Fit linear regression model with years_to_btsdmard as predictor and score_before_0 as a covariate
+model_btsdmard <- lm(dx_to_death ~ score_before_0 + years_to_btsdmard, data = df)
+summary(model_btsdmard)
+
+# Extract model coefficients and p-values
+coef_btsdmard <- summary(model_btsdmard)$coefficients
+pval_btsdmard <- coef_btsdmard["years_to_btsdmard", "Pr(>|t|)"]
+coef_estimate_btsdmard <- coef_btsdmard["years_to_btsdmard", "Estimate"]
+adj_r2_btsdmard <- summary(model_btsdmard)$adj.r.squared
+
+# Construct description sentence; significant here
+paste0("The coefficient estimate for years to btsdmard was ", round(coef_estimate_btsdmard, 2), " and the associated p-value was ", format.pval(pval_btsdmard), ". This indicates that there is a significant positive relationship between the number of years between diagnosis and first use of btsDMARD and time to death. The adjusted R-squared value for the model was ", round(adj_r2_btsdmard, 4), ", suggesting that a small amount of the variance in time to death was explained by the model.")
+
+
+# Extract model coefficients and p-values
+coef_cdmard <- summary(model_cdmard)$coefficients
+pval_cdmard <- coef_cdmard["years_to_cdmard", "Pr(>|t|)"]
+coef_estimate_cdmard <- coef_cdmard["years_to_cdmard", "Estimate"]
+adj_r2_cdmard <- summary(model_cdmard)$adj.r.squared
+
+# Construct description sentence; insignificant here
+paste0("The coefficient estimate for years to cdmard was ", round(coef_estimate_cdmard, 2), " and the associated p-value was ", format.pval(pval_cdmard), ". This indicates that there is no significant relationship between the number of years between diagnosis and first use of cDMARD and time to death. The adjusted R-squared value for the model was ", round(adj_r2_cdmard, 4), ", suggesting that only a very small amount of the variance in time to death was explained by the model.")
+
+
+# improved version
+paste0("Linear regression models were used to predict the time to death based on the number of years between diagnosis and first use of cDMARD or btsDMARD, while controlling for baseline multimorbidity. The results show that baseline comorbidity score did not have a significant confounding effect on the relationship between time to death and the number of years between diagnosis and first use of either drug. However, only years to btsDMARD was found to be a significant positive predictor of time to death (p = ", format.pval(pval_btsdmard), "), with an adjusted R-squared value of ", round(adj_r2_btsdmard, 4), " and coefficient estimate ", round(coef_estimate_btsdmard, 2), ". In contrast, years to cdmard was not a significant predictor of time to death in this sample (p = ", format.pval(pval_cdmard), ") adjusted R-squared = ", round(adj_r2_cdmard, 4), ".")
+
 
 # 2: Among b/ts DMARDs, which one is preferred by local clinicians as first/second line option? Could also stratified by years to demonstrate the change of market share as time goes by (For example, i know the use of infliximab is decreasing year by year)----------------
 # obtain first btsdmard
@@ -1130,12 +1275,11 @@ ggplot(
 
 
 # 3: The access time and uptake rate of biosimilars in Hong Kong
-
 # saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df3.rds")
 merged_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df3.rds")
 
 # there is one random entry with drug prescription in 1900
-merged_df <- merged_df %>% filter(PrescriptionStartDate > 1950)
+# merged_df <- merged_df %>% filter(earliest_start_date > 1950)
 
 # split the drug column by the "+" character; get the total number of moa for each pt (alone or in combination, number of unique drugs taken)
 total_moa_df <- merged_df %>%
@@ -1164,10 +1308,11 @@ merged_df <- merged_df %>%
 # merged_df %>% pull(DrugName_clean) %>% unique()
 
 
-# how to modify the code, such that reflect if pt is taking bioo or bios, or both? If there was a switch; would treatment trajectory need to reflect that
+merged_df %>% View()
 
 
 # filter to only include when tx duration > 30 days (for continuous period) to be considered significant
+
 
 
 # 4: time of starting btsdmard and prognosis score ------------------------
@@ -1177,45 +1322,55 @@ merged_df <- merged_df %>%
 
 # 5: change in score over time stratified by use of bios vs bioo -------------
 
+# labelled pt by bioo, bios, any change
 
 
+# 6: gantt's chart for treatment trajectory ----------------------------------
+start_dates <- merged_df %>% 
+  distinct(ReferenceKey, earliest_start_date) %>% 
+  pull(earliest_start_date)
+
+# Create year groups using cut()
+year_groups <- cut(start_dates, breaks = seq(min(start_dates), max(start_dates), by = "1 year"))
+
+# Create a frequency table using table()
+freq_table <- table(year_groups)
 
 
+# gantt's chart need to be grouped to have some meaning. So group by drug start_date_group so those within 1 year are grouped first followed by duration_group, then drug numbers (monotherapy first, and then those with dual therapy)
 
-# gantt's chart for treatment trajectory ----------------------------------
-
-
-# gantt's chart need to be grouped to have some meaning. So group by drug numbers (monotherapy first, and then those with dual therapy), drug swap (number of entries), earlier date of diagnosis (in this order)
-
+# downsample the data for speed and clarity
 # create groups based on prescription start dates and duration
-temp <- merged_df %>%
+merged_df_downsampled <- merged_df %>%
+  distinct(ReferenceKey) %>%
+  sample_n(size = 300) %>%
+  inner_join(merged_df, by = "ReferenceKey") %>%
   group_by(ReferenceKey) %>% # group_by referencekey before cutting PrescriptionStartDate)
   mutate(start_date_group = 
            cut(earliest_start_date, 
                breaks = seq.Date(as.Date(min(merged_df$PrescriptionStartDate)), 
                                  as.Date(max(merged_df$PrescriptionEndDate)), 
-                                 by = "1 year"))) %>% 
+                                 by = "6 months"))) %>% 
   mutate(duration_group = cut(duration, breaks = c(0, 365, 730, Inf))) %>%
-  arrange(start_date_group, desc(duration_group), n_moa, moa)
+  arrange(start_date_group, duration_group, n_moa)
 
+# merged_df_downsampled %>% 
+#   distinct(ReferenceKey, .keep_all = TRUE) %>% View()
 
 # summary(merged_df$PrescriptionStartDate)
 # summary(merged_df$PrescriptionEndDate)
 # seq.Date(as.Date(min(merged_df$PrescriptionStartDate)), as.Date(max(merged_df$PrescriptionEndDate)), by = "6 months")
 
-View(merged_df)
-temp %>% head(10000)
+
 
 # Create a data frame with start, end, drug, and patient columns
-df <- temp %>%
-  head(1000) %>%
-  # filter(ReferenceKey == "10140118") %>% 
-  mutate(patient = as.factor(ReferenceKey),
-         end = PrescriptionEndDate) %>%  # ifelse would give unintended bridges
-         # end = ifelse(is.na(gap_output), 
-         #              PrescriptionEndDate, 
-         #              PrescriptionStartDate + gap_output)) %>%
-  select(start = PrescriptionStartDate, end, drug = moa, patient)
+df <- merged_df_downsampled %>%
+  mutate(patient = as.factor(ReferenceKey)) %>% 
+  select(ReferenceKey, 
+         patient, 
+         start = PrescriptionStartDate, 
+         end = PrescriptionEndDate, 
+         drug = moa)
 
 # sample df just for showing the gantt's chart for one pt, illustrative purposes only
 # extract_traj(prescription_traj_list[["10140118"]]) # eg to check validity of the plot
@@ -1267,6 +1422,12 @@ drug_colors <- c(single_colors, combo_colors)
 # Create a new column in the dataframe that assigns the correct color to each drug
 df$color <- drug_colors[df$drug]
 
+# for setting order of gantt's chart
+df$patient <- as.factor(df$patient)
+
+# Reorder the levels based on their appearance in the data
+df$patient <- forcats::fct_inorder(df$patient)
+
 # Create the plot
 fig <- df %>%
   plot_ly() %>%
@@ -1295,9 +1456,13 @@ fig <- fig %>% layout(
     title = "",
     # tickmode = "linear",  # Use linear tick mode
     # dtick = 1,  # Adjust the tick interval as needed
-    showticklabels = FALSE,
-    tickfont = list(size = 6)),
-  title = list(text = "<b>Treatment Trajectories of Patients</b>", font = list(size = 15)),
+    showticklabels = FALSE, # change to false later
+    tickfont = list(size = 6),
+    categoryorder = "array",
+    categoryarray = rev(levels(df$patient))
+  ),
+  title = list(text = "<b>Treatment Trajectories of Patients</b>", 
+               font = list(size = 15)),
   hovermode = 'closest'
 )
 
