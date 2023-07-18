@@ -9,10 +9,13 @@ librarian::shelf(haven,
                  readxl, # read the excel drug list
                  hrbrthemes, 
                  RColorBrewer,
-                 ggalluvial, # treatment trajectory sankey)
+                 # ggalluvial, # treatment trajectory sankey)
                  plotly, # heatmaps
                  svglite, # save svgs
-                 MASS # linear regression stepwise
+                 # MASS, # linear regression stepwise # select disrupts dplyr
+                 # ggforce # for sankey
+                 knitr, # for tables
+                 kableExtra
 )
 
 # setwd("/Users/elsiechan/Documents/GitHub/rheumatoid")
@@ -50,6 +53,15 @@ cdmard <- toupper(cdmard)
 
 # read excel sheet for disease cp -----------------------------------------
 weight_df <- read_excel('MMI.xlsx')
+
+
+# find the row index where DiseaseEntity_260292 is "Dyspepsia"
+row_index <- which(weight_df$DiseaseEntity_26029213 == "Dyspepsia")
+
+# set the value of the ICD9_unref column in the relevant row, because problematic cell
+weight_df[row_index, "ICD9_unref"] <- "536.8"
+
+
 weight_df$Assigned_weight <- as.numeric(weight_df$Assigned_weight)
 
 
@@ -263,17 +275,26 @@ diagnosis_sub$Patient.Type..IP.OP.A.E.. <- trimws(diagnosis_sub$Patient.Type..IP
 # get weighting score -----------------------------------------------------
 # weight_df
 # diagnosis_sub
-diagnosis_sub %>% select(All.Diagnosis.Description..HAMDCT..)
+diagnosis_sub %>% dplyr::select(All.Diagnosis.Description..HAMDCT..)
+
+
+# this code is PROBLEMATIC and only selects first regex match; instead take the regex expression which is already there by default
 
 diagnosis_sub$ICD <- regmatches(
-  x = diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."],
+  x = pull(diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."]),
   m = regexpr(
     pattern = "(?<=\\()[\\d\\.EV]+(?=:)",
     # after ( but not including, \ the \ character, not including the colon; [^\\(]*$ to take the last occurrence of the open bracket, don't want anymore brackets like the case of (lymph node) instead of (ICD)
     # EV because some ICD begins with that followed by the bracket
-    # (?<=\\()\\d+.*(?=:)   # this is the older version which didn't work if ( followed by E or V alphabet in the ICD code
-    text = diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."],
-    perl = TRUE))
+    text = pull(diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."]),
+    perl = TRUE
+  )
+)
+  
+# diagnosis_sub %>% pull(All.Diagnosis.Code..ICD9..)
+
+# diagnosis_sub %>% pull(ICD)
+# diagnosis_sub %>% pull(All.Diagnosis.Code..ICD9..)
 
 # diagnosis_sub[899, ] # example with the bracket lymph node
 # for debugging to see where regex failed to match
@@ -285,8 +306,20 @@ diagnosis_sub$ICD <- regmatches(
 # diagnosis_sub %>% filter(ICD != ICD_no_0) %>% select(ICD, ICD_no_0, All.Diagnosis.Description..HAMDCT..)
 
 
+
+# you can't rely on the All.Diagnosis.Code..ICD9.. because at some point after they all turn into english text !?
+# diagnosis_sub <- diagnosis_sub %>% rename(ICD = All.Diagnosis.Code..ICD9..)
+
+# which(nchar(diagnosis_sub %>% pull(ICD)) > 8)
+# pull(diagnosis_sub, ICD)[which(nchar(diagnosis_sub %>% pull(ICD)) > 8)]
+# diagnosis_sub[which(nchar(diagnosis_sub %>% pull(ICD)) > 8), ]
+# options(max.print = 100000)
+
+
 # add before_ra column, boolean for entry whether it was before the first_ra diagnosis
 diagnosis_sub <- diagnosis_sub %>% mutate(before_ra = if_else(Reference.Date. < first_ra, T, F))
+
+
 
 #' cal_timepoint_score
 #' give it a timepoint. e.g. 5 days. Then look for ICDs that happened before, inclusively, 5 days after the diagnosis of first_ra. Takes those ICD score. Uses the weight_df matrix to assign weight, and outputs a df with score for each Referencekey
@@ -298,7 +331,7 @@ diagnosis_sub <- diagnosis_sub %>% mutate(before_ra = if_else(Reference.Date. < 
 #' @export
 #'
 #' @examples
-cal_timepoint_score <- function(days, diagnosis_sub, weight_df) {
+cal_timepoint_score <- function(days, diagnosis_sub, weight_df, prefix = "score_before_") {
   df <- diagnosis_sub %>%
     mutate(
       ICD_before_timepoint = case_when(
@@ -342,7 +375,7 @@ cal_timepoint_score <- function(days, diagnosis_sub, weight_df) {
   }
   
   # customise the column name to reflect the days
-  names(scores_df)[names(scores_df) == "score_before_timepoint"] <- paste0("score_before_", days)
+  names(scores_df)[names(scores_df) == "score_before_timepoint"] <- paste0(prefix, days)
   
   return(scores_df)
   
@@ -369,6 +402,7 @@ scores_df <- left_join(cal_timepoint_score(100000, diagnosis_sub, weight_df), sc
 
 # saveRDS(object = scores_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/scores_df.rds")
 # scores_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/scores_df.rds")
+
 
 # one potential problem is if pt was diagnosed e.g. with RA at 2022 December. A year from then would be 2023 Dec when we do not have the data yet, but our data would make it appear as tho the pt has not had any worsening. But we do not know the end-point. Unless first_ra we use that to ignore the consideration of data 1 year from first_ra for the score score_before_365 days. So we could do that downstream using first_ra. 
 
@@ -1273,13 +1307,13 @@ ggplot(
     legend.position = "right"
   )
 
-
-# 3: The access time and uptake rate of biosimilars in Hong Kong
 # saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df3.rds")
 merged_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df3.rds")
 
+# 3: The access time and uptake rate of biosimilars in Hong Kong
+
 # there is one random entry with drug prescription in 1900
-# merged_df <- merged_df %>% filter(earliest_start_date > 1950)
+merged_df <- merged_df %>% filter(earliest_start_date > 1950)
 
 # split the drug column by the "+" character; get the total number of moa for each pt (alone or in combination, number of unique drugs taken)
 total_moa_df <- merged_df %>%
@@ -1302,30 +1336,379 @@ merged_df <- merged_df %>%
   mutate(duration = as.numeric(difftime(max(PrescriptionEndDate), min(PrescriptionStartDate), units = "days"))) %>%
   ungroup()
 
-# View(merged_df)
 # colnames(merged_df)
 # merged_df %>% pull(drug_os) %>% unique()
 # merged_df %>% pull(DrugName_clean) %>% unique()
 
 
+# filter to only include when tx duration > 30 days (for continuous period) to be considered significant
+
+# 4: just the switch between bios and bioo, on average how many days? ---------------
+# this info is needed. e.g. multimorbidity index would not make sense if bios was taken many days after, then you don't have the baseline 
+# should theoretically take the change in the multimorbidity index score compare with one year after the switch if there ever was one
+
+merged_df %>% 
+  group_by(ReferenceKey) %>% 
+  mutate(first_use_o = ifelse(str_detect(drug_os, "_o"), PrescriptionStartDate, NA_real_)) %>% 
+  View()
+
+colnames(merged_df)
+
+# adding days to o and earliest o date
+merged_df <- merged_df %>% 
+  filter(str_detect(drug_os, "_o")) %>% 
+  group_by(ReferenceKey) %>% 
+  mutate(earliest_o_date = min(PrescriptionStartDate)) %>% 
+  mutate(days_to_o = earliest_o_date - earliest_start_date) %>% # rather than first_ra unlike cdmard and bdmard
+  distinct(ReferenceKey, earliest_o_date, days_to_o) %>%
+  full_join(merged_df)
+
+merged_df$days_to_o <- as.numeric(merged_df$days_to_o)
+
+# adding days to s and earliest s date
+merged_df <- merged_df %>% 
+  filter(str_detect(drug_os, "_s")) %>% 
+  group_by(ReferenceKey) %>% 
+  mutate(earliest_s_date = min(PrescriptionStartDate)) %>% 
+  mutate(days_to_s = earliest_s_date - earliest_start_date) %>%
+  distinct(ReferenceKey, earliest_s_date, days_to_s) %>%
+  full_join(merged_df)
+
+merged_df$days_to_s <- as.numeric(merged_df$days_to_s)
+
+# creating os trajectory
+merged_df <- merged_df %>% 
+  mutate(os_trajectory = case_when(
+    days_to_o < days_to_s ~ "o_s",
+    days_to_o > days_to_s ~ "s_o",
+    !is.na(days_to_o) & is.na(days_to_s) ~ "o", # have o but not s
+    !is.na(days_to_s) & is.na(days_to_o) ~ "s", # have s but not o
+    days_to_o == days_to_s ~ "b",
+    TRUE ~ NA_character_
+  ))
+
 merged_df %>% View()
 
 
-# filter to only include when tx duration > 30 days (for continuous period) to be considered significant
+temp <- merged_df %>% 
+  distinct(ReferenceKey, os_trajectory) %>% 
+  group_by(os_trajectory) %>%
+  pull(os_trajectory) %>% 
+  table()
+
+
+paste0("Based on the earliest date of use of bio-originator or bio-similar, we classified patients into bio-originator only (", temp["o"], "), biosimilar only (", temp["s"], "), switch from bio-originator to biosimilar (", temp["o_s"], "), and switch from biosimilar to bio-originator (", temp["s_o"], "). There were no patients who commenced both simultaneously.")
+
+# it makes sense the above don't add up to the !is.na(days_to_btsdmard) because that is btsdmard; whereas we are just looking at the bdmard with bios and bioo 
+# merged_df %>% 
+#   distinct(ReferenceKey, days_to_btsdmard) %>% pull(days_to_btsdmard) %>% is.na() %>% table()
+
+# saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df4.rds")
+merged_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df4.rds")
+
+
+# on average how many days until switch? 
+merged_df <- merged_df %>% 
+  filter(os_trajectory == "s_o" | os_trajectory == "o_s") %>% # where there is a switch
+  mutate(days_till_os_switch = abs(days_to_s - days_to_o)) %>% 
+  distinct(ReferenceKey, days_till_os_switch) %>% 
+  full_join(merged_df)
+
+# get the mean, min and max
+temp <- merged_df %>% filter(os_trajectory == "o_s") %>% 
+  distinct(ReferenceKey, days_till_os_switch) %>% 
+  summary(days_till_os_switch)
+
+paste0("For the switch from biooriginator to biosimilar, the mean number of days from the earliest date, be it date of diagnosis of rheumatoid arthritis or the prescription of a rhematoid arthritis drug, is ", temp[4,2], "(min = ", temp[1,2], ", max = ", temp[6,2], ".")
+
+# failed plot attempt at alluvial (but pretty useless so forget it------------------
+# now I need a plot to demonstrate o, s, o_s, s_o, and number of days till the switch occurs for the latter two
+
+df <- merged_df %>% 
+  distinct(ReferenceKey, .keep_all = TRUE)
+
+# just to remove the values i called NA
+df <- df %>% filter(os_trajectory != "NA")
+
+
+ggplot(data = df_transition,
+       aes(axis1 = o, axis2 = s, y = freq)) +
+  geom_alluvium(aes(fill = s)) +
+  geom_stratum() +
+  geom_text(stat = "stratum",
+            aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("Survey", "Response"),
+                   expand = c(0.15, 0.05)) +
+  theme_void()
+
+vaccinations
+ggplot(data = vaccinations,
+       aes(axis1 = survey, axis2 = response, y = freq)) +
+  geom_alluvium(aes(fill = response)) +
+  geom_stratum() +
+  geom_text(stat = "stratum",
+            aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("Survey", "Response"),
+                   expand = c(0.15, 0.05)) +
+  theme_void()
+
+
+# create a data frame with the transition counts
+df_transitions <- table(df$os_trajectory)
+
+# convert the table to a data frame
+df_transitions <- as.data.frame(df_transitions)
+
+# rename the columns
+colnames(df_transitions) <- c("from", "n")
+
+# create an alluvial diagram
+ggplot(df_transitions, aes(y = n, axis1 = from)) +
+  geom_alluvium(aes(fill = from), width = 1/12) +
+  geom_stratum(width = 1/12, aes(fill = from)) +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  scale_fill_manual(values = c("#F8766D", "#00BA38", "#619CFF", "#FFB85F")) +
+  ggtitle("Transitions between OS Trajectories") +
+  theme(plot.title = element_text(hjust = 0.5))
 
 
 
-# 4: time of starting btsdmard and prognosis score ------------------------
+
+# create a data frame with the transition counts
+df_transitions <- data.frame(from = sub("_.*", "", df$os_trajectory),
+                             to = sub(".*_", "", df$os_trajectory))
+
+# tabulate the counts of transitions
+df_transitions <- table(df_transitions$from, df_transitions$to)
+
+# convert the table to a data frame
+df_transitions <- as.data.frame(df_transitions)
+
+# rename the columns
+colnames(df_transitions) <- c("from", "to", "n")
+
+# create an alluvial diagram
+ggplot(df_transitions, aes(y = n, axis1 = from, axis2 = to)) +
+  geom_flow(aes(fill = from), width = 0.5) +
+  scale_fill_manual(values = c("#F8766D", "#00BA38", "#619CFF", "#FFB85F")) +
+  ggtitle("Transitions between OS Trajectories") +
+  theme(plot.title = element_text(hjust = 0.5))
 
 
 
 
-# 5: change in score over time stratified by use of bios vs bioo -------------
 
-# labelled pt by bioo, bios, any change
+# definitely needed to calculate the multimorbidity score if of interests from the point days_to_o, and repeated for days_to_s-----------------------------------
+
+merged_df
 
 
-# 6: gantt's chart for treatment trajectory ----------------------------------
+
+
+
+
+
+
+
+
+
+
+# 5: predilection to cause of death if different drugs used (?) ------------------------
+
+merged_df %>% View()
+
+merged_df %>% 
+  filter(!is.na(main_death)) %>% 
+  count(main_death) %>% 
+  filter(n > 10) %>% 
+  arrange(desc(n))
+
+# 6: change in score over time stratified by use of bios vs bioo -------------
+
+# labelled pt by bioo, bios, those who changed from bioo → bios, bios → bioo
+oors_df <- merged_df %>% 
+  filter(os_trajectory == "s") %>% 
+  distinct(ReferenceKey, .keep_all = TRUE) %>% # only need one row per ReferenceKey
+  select(ReferenceKey, days_to_s, last_record, earliest_start_date) %>% 
+  rename(days_to_OS = days_to_s) # hence reproducible
+
+
+source("/Users/elsiechan/Documents/GitHub/rheumatoid/04_cal_timepoint_score_baselined.R")
+
+# output is output_df
+s_df <- output_df
+
+oors_df <- merged_df %>% 
+  filter(os_trajectory == "o") %>% 
+  distinct(ReferenceKey, .keep_all = TRUE) %>% # only need one row per ReferenceKey
+  select(ReferenceKey, days_to_o, last_record, earliest_start_date) %>% 
+  rename(days_to_OS = days_to_o)
+
+source("/Users/elsiechan/Documents/GitHub/rheumatoid/04_cal_timepoint_score_baselined.R")
+
+o_df <- output_df
+o_df %>% arrange(ReferenceKey)
+
+
+o_df$os <- "o"
+s_df$os <- "s"
+
+df <- rbind(o_df, s_df)
+
+df <- df %>% arrange(ReferenceKey, day)
+
+df <- df %>% mutate(month = round(as.numeric(day)/30.44))
+
+# calculate mean and standard error of score, and number of patients, for each month and os group
+df_summary <- df %>%
+  filter(day != 1096) %>%  # because very few datapoints for biosimilars
+  group_by(month, os) %>%
+  summarise(mean_score = mean(score, na.rm = TRUE),
+            se_score = sd(score, na.rm = TRUE) / sqrt(sum(!is.na(score))),
+            n_patients = sum(!is.na(score)))
+
+
+my_plot <- ggplot(df_summary, aes(x = month, y = mean_score, fill = os)) +
+  geom_ribbon(aes(ymin = mean_score - se_score, ymax = mean_score + se_score), alpha = 0.2) +
+  geom_line(aes(color = os)) +
+  geom_point(aes(color = os), size = 1, fill = "white") +
+  labs(x = "Months after first use of drug", y = "Multimorbidity score") +
+  scale_x_continuous(limits = c(0, max(df_summary$month)), breaks = seq(0, max(df_summary$month), 3)) +
+  scale_fill_manual(values = c("o" = "blue", "s" = "red"), name = "Drug type", labels = c("Bio-originators", "Biosimilars")) +
+  scale_color_manual(values = c("o" = "blue", "s" = "red"), name = "Drug type", labels = c("Bio-originators", "Biosimilars")) +
+  theme(axis.text = element_text(size = 10, family = "Arial"), 
+        legend.position = "right", 
+        legend.box.background = element_rect(color = "gray75", linetype = "solid", fill = "white", size = 0.5), 
+        legend.title.align = 0.5, 
+        legend.margin = margin(0, 5, 0, 5), 
+        legend.text = element_text(size = 10, family = "Arial"), 
+        legend.key.size = unit(0.75, "cm")) +
+  geom_label(aes(label = paste0("n = ", n_patients)), 
+             position = position_nudge(y = 0.25), 
+             fill = "gray80", 
+             color = c("blue", "red")[as.factor(df_summary$os)], 
+             size = 2, 
+             # check_overlap = TRUE, 
+             na.rm = TRUE, 
+             label.padding = unit(0.1, "cm"), 
+             label.r = unit(0.1, "cm")) +
+  ggtitle("Multimorbidity score from First use\n of Bio-originator and Biosimilar") +
+  theme(plot.title = element_text(size = 16, face = "bold", family = "Arial"))
+
+my_plot
+
+# my_plot + annotate("text", x = 3, y = 1.6, label = paste0("Wilcoxon rank-sum test:\n p = ", 
+#                                                           round(test_result_1year$p.value, 3), " (1-year) / ", round(test_result_2year$p.value, 3), 
+#                                                           " (2-year),\n not statistically significant"), size = 3, color = "black", fill = "white",
+#                    alpha = 0.8, box.color = "black", fontface = "bold", hjust = 0, vjust = 1)
+
+ggsave(paste0(path, "/charts/", "line_os_comparison_multimorbidity", ".svg"), my_plot, device = "svg")
+ggsave(paste0(path, "/charts/", "line_os_comparison_multimorbidity", ".png"), my_plot, device = "png", dpi = 300)
+
+# generate a table for n_patients; not so useful actually
+# n_table <- knitr::kable(df_summary, caption = "Number of patients") %>%
+#   kableExtra::kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+
+# welch's t test------------------------------------------------------------
+# instead of paired t test due to different variance of data
+# Subset data for day 0 and day 12 for treatment s and treatment o
+df_s_m0 <- df %>% filter(month == 0 & os == "s")
+df_s_m12 <- df %>% filter(month == 12 & os == "s")
+df_o_m0 <- df %>% filter(month == 0 & os == "o")
+df_o_m12 <- df %>% filter(month == 12 & os == "o")
+
+# Calculate the increase in score for treatment s and treatment o
+df_s <- data.frame(ID = df_s_m0$ReferenceKey, increase = df_s_m12$score - df_s_m0$score)
+df_o <- data.frame(ID = df_o_m0$ReferenceKey, increase = df_o_m12$score - df_o_m0$score)
+
+
+# Perform Wilcoxon rank-sum test
+test_result_1year <- wilcox.test(df_s$increase, df_o$increase)
+
+
+# repeat for month 24, two years
+df_s_m24 <- df %>% filter(month == 24 & os == "s")
+df_o_m24 <- df %>% filter(month == 24 & os == "o")
+
+# Calculate the increase in score for treatment s and treatment o
+df_s <- data.frame(ID = df_s_m0$ReferenceKey, increase = df_s_m24$score - df_s_m0$score)
+df_o <- data.frame(ID = df_o_m0$ReferenceKey, increase = df_o_m24$score - df_o_m0$score)
+
+
+# Perform Wilcoxon rank-sum test
+test_result_2year <- wilcox.test(df_s$increase, df_o$increase)
+
+
+
+# cannot perform welch's t-test because not normally distributed
+# Create histograms and normal probability plots of the data; check normal distribution
+# par(mfrow = c(2,2))
+# hist(df_s$increase, main = "Treatment S")
+# qqnorm(df_s$increase); qqline(df_s$increase)
+# hist(df_o$increase, main = "Treatment O")
+# qqnorm(df_o$increase); qqline(df_o$increase)
+
+# Perform normality tests
+shapiro.test(df_s$increase)
+shapiro.test(df_o$increase)
+
+shapiro.test(rbind(df_s, df_o)$increase)
+# 
+# 
+# # Perform Welch's t-test
+# t.test(df_s$increase, df_o$increase, var.equal = FALSE)
+
+
+# linear mixed effect model (failed)------------------------------------
+# create a new column for the change in score
+df_summary$change_score <- df_summary$mean_score - df_summary$mean_score[df_summary$os == "o" & df_summary$month == 0]
+
+# fit a linear mixed-effects model
+# Then, we fit a linear mixed-effects model using the lmer() function from the lme4 package. The predictor variable is os, which represents the drug type (Bio-originator or Biosimilar), and the covariate is mean_score, which represents the baseline score. We also include month as a fixed effect to control for any potential time trends in the outcome variable. Finally, we include a random intercept for each patient using the (1 | patient_id) syntax.
+
+# The Estimate column for the os variable represents the difference in the change in score between the two drug types (Biosimilars vs. Bio-originators), after controlling for the baseline score and time trends. If the estimate is statistically significant (i.e., the p-value is less than your chosen alpha level), then you can conclude that there is evidence of a difference in the change in score between the two drug types.
+model <- lme4::lmer(change_score ~ os + month + mean_score + (1 | patient_id), data = df_summary)
+
+# print the model summary
+summary(model)
+
+
+
+# Calculate mean score for each patient and drug type
+df_summary_patient <- df %>%
+  group_by(os, ReferenceKey) %>%
+  summarize(mean_score = mean(score, na.rm = TRUE)) %>%
+  ungroup()
+
+# Calculate mean score for each drug type and month
+df_summary_drug <- df %>%
+  group_by(os, month) %>%
+  summarize(mean_score = mean(score, na.rm = TRUE)) %>%
+  ungroup()
+
+# Calculate change score relative to baseline for each drug type and month
+df_summary_drug <- df_summary_drug %>%
+  mutate(change_score = mean_score - mean_score[os == "o" & month == 0])
+
+# Merge df and df_summary_drug to obtain patient-level data
+df_merged <- merge(df, df_summary_drug, by = c("os", "month"))
+
+# Merge df_merged and df_summary_patient to obtain patient-level data with mean score
+df_merged <- merge(df_merged, df_summary_patient, by = c("os", "ReferenceKey"))
+
+cor(df_merged[, c("os", "month", "mean_score.y")])
+
+# Fit mixed-effects model with random intercepts for each patient
+model <- lme4::lmer(change_score ~ os + month + mean_score.y + (1 | ReferenceKey), data = df_merged)
+
+
+
+
+
+
+
+# 7: gantt's chart for treatment trajectory ----------------------------------
 start_dates <- merged_df %>% 
   distinct(ReferenceKey, earliest_start_date) %>% 
   pull(earliest_start_date)
@@ -1543,12 +1926,3 @@ prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[10]) 
 # Filter the diagnosis table to only get pt who has, in their lifetime, been diagnosed with any in ra_vec
 ra_vector_refkey <- diagnosis[diagnosis$All.Diagnosis.Description..HAMDCT.. %in% ra_vector, "Reference.Key."]
 diagnosis_sub <- diagnosis[diagnosis$Reference.Key. %in% ra_vector_refkey, ]
-
-colnames(prescription)
-colnames(inpatient)
-colnames(diagnosis)
-View(death)
-View(diagnosis)
-View(inpatient)
-View(prescription)
-
