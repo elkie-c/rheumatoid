@@ -65,7 +65,7 @@ weight_df[row_index, "ICD9_unref"] <- "536.8"
 weight_df$Assigned_weight <- as.numeric(weight_df$Assigned_weight)
 
 
-# clean weight_df (clean ICD codes by expanding hyphen and x)---------------------------------------------------------
+# (no need) clean weight_df (clean ICD codes by expanding hyphen and x)---------------------------------------------------------
 # remove empty space
 weight_df$ICD9_unref <- str_replace_all(weight_df$ICD9_unref, "\\s+", "")
 weight_df$DiseaseEntity_26029213 <- str_replace_all(weight_df$DiseaseEntity_26029213, "\\s+", "")
@@ -149,20 +149,16 @@ for (i in seq(nrow(weight_df))) {
 # clean diagnosis ------------------------------------------------------
 # firstly, only consider pt if diagnosed with RA at least at some point in life
 # the following line shows that other than rheumatoid arthritis, you also have rheumatoid nodule arthritis
+
+# rename to Reference.date, since second time diagnosis.rds the column names are renamed
+diagnosis <- diagnosis %>% rename(Reference.Date. = date)
+
 ra_vector <- unique(grep(
   pattern =
     "714\\.[0128]",
-  x = diagnosis$All.Diagnosis.Description..HAMDCT..,
+  x = diagnosis$description,
   value = TRUE
 ))
-
-# old ra vector, includes those antepartum RA, maternal care etc
-# ra_vector <- unique(grep(
-#   pattern =
-#     "rheumatoid|Rheumatoid|[Jj]uv.*rh|714",
-#   x = diagnosis$All.Diagnosis.Description..HAMDCT..,
-#   value = TRUE
-# ))
 
 # exclude this strange item called Screen-rheumatoid
 # ra_vector <- grep(pattern = "^(?!.*Screen)", x = ra_vector, value = TRUE, perl = TRUE)
@@ -175,19 +171,18 @@ ra_vector <- grep(pattern = "glomerulonephritis|seronegative", x = ra_vector, pe
 not_ra_vector <- unique(grep(
   pattern =
     "rheum|RA",
-  x = diagnosis$All.Diagnosis.Description..HAMDCT..,
+  x = diagnosis$description,
   value = TRUE
 ))
 
 not_ra_vector[!not_ra_vector %in% ra_vector] # so these are the strings
 
-
-# for pt diagnosed with cancer or autoimmune disease before RA, remove them
 # for each pt diagnosed with RA, get the earliest reference date for the RA diagnosis
 # Group by patient and get earliest reference date
-earliest_ra <- diagnosis[diagnosis$All.Diagnosis.Description..HAMDCT.. %in% ra_vector, ] %>%
-  group_by(Reference.Key.) %>%
+earliest_ra <- diagnosis[diagnosis$description %in% ra_vector, ] %>%
+  group_by(ReferenceKey) %>%
   summarize(first_ra = min(Reference.Date.))
+
 
 # double check only
 # earliest_ra[earliest_ra$Reference.Key. == 5872, ]
@@ -196,13 +191,13 @@ earliest_ra <- diagnosis[diagnosis$All.Diagnosis.Description..HAMDCT.. %in% ra_v
 # update the table with a column on the earliest RA diagnosis if any
 diagnosis_sub <- dplyr::left_join(x = diagnosis,
                                   y = earliest_ra,
-                                  by = "Reference.Key.") %>%  # before next line will see some NA dates for those not diagnosed with our definition of RA
+                                  by = "ReferenceKey") %>%  # before next line will see some NA dates for those not diagnosed with our definition of RA
   filter(!is.na(first_ra)) # to remove those who do not have our definition of RA
   # filter(Reference.Date. <= first_ra) # lesser or equal to so we keep the RA columns and do not exclude them
 
 
 # obtain a list of all biologics indications
-# later, when cleaning diagnosis df, we need to remove pt with diagnosis of ANY biologics indications prior to their first date of RA, in case they may have received biologics for a purpose other than RA. I need a string vector for those indications
+# when cleaning diagnosis df, we need to remove pt with diagnosis of ANY biologics indications prior to their first date of RA (e.g. cancer or autoimmune disease), in case they may have received biologics for a purpose other than RA. I need a string vector for those indications
 
 # taken from https://ard.bmj.com/content/annrheumdis/suppl/2021/10/22/annrheumdis-2021-221571.DC1/annrheumdis-2021-221571supp001_data_supplement.pdf  they are as follows:
 # reactive arthritis
@@ -230,7 +225,7 @@ diagnosis_sub <- dplyr::left_join(x = diagnosis,
 #   20[0-9]
 
 other_biologic <- grepl(
-  x = diagnosis_sub$All.Diagnosis.Code..ICD9..,
+  x = diagnosis_sub$description,
 pattern = "099\\.3|
 711\\.[13]|
 716\\.[4569]|
@@ -250,27 +245,27 @@ pattern = "099\\.3|
 20[0-9]") # you need double backslashes in R, as \ is also escape character in R itself
 
 # obtain the reference key of those with ANY match with the other_biologic indications
-unwanted_ra <- diagnosis_sub[other_biologic, "Reference.Key."]
+unwanted_ra <- diagnosis_sub[other_biologic, "ReferenceKey"] %>% pull()
 
 # how many pts did we exclude this way?
-print(paste0("At first, we have ", length(unique(diagnosis_sub$Reference.Key.)), " number of patients who fulfil our definition of RA"))
+print(paste0("At first, we have ", length(unique(diagnosis_sub$ReferenceKey)), " number of patients who fulfil our definition of RA"))
 
-print(paste0("Then, we removed patients who were diagnosed with conditions that indicate the use of biologics at ANY point in their life. Now, there are ", length(unique(unwanted_ra)), " patients who meet this criteria. Example of their ID include the following:"))
+print(paste0("Then, we removed patients who were diagnosed with conditions that indicate the use of biologics at ANY point in their life. Now, there are ", length(unique(unwanted_ra)), " patients who meet this condition. Example of their ID include the following:"))
 
 print(paste0(unique(unwanted_ra)[1:5], collapse = ", "))
 
 print(paste0(
-  "So the number of patients who remain in the analysis are ",
-  length(unique(diagnosis_sub$Reference.Key.)) - length(unique(unwanted_ra))
+  "So the number of patients who remain in the analysis is ",
+  length(unique(diagnosis_sub$ReferenceKey)) - length(unique(unwanted_ra))
 ))
 
-# then, unwanted_ra gives us 194 in the following line
-# length(unique(unwanted_ra))
-# so we have eliminated 194 of those RA pt with some kind of indications for biologic BEFORE diagnosis of RA. But later as I found out even though they do have these indications, none of those pt contributed to our analysis, likely because they were not given biologics, or they were given biologics or an unknown type i.e. biosimilar or biooriginator
-diagnosis_sub <- diagnosis_sub %>% 
-  filter(!Reference.Key. %in% unwanted_ra)
 
-diagnosis_sub$Patient.Type..IP.OP.A.E.. <- trimws(diagnosis_sub$Patient.Type..IP.OP.A.E..)
+
+
+# diagnosis_sub <- diagnosis_sub %>% 
+#   filter(!ReferenceKey %in% unwanted_ra)
+# 
+# diagnosis_sub$Patient.Type..IP.OP.A.E.. <- trimws(diagnosis_sub$Patient.Type..IP.OP.A.E..)
 
 # get weighting score -----------------------------------------------------
 # weight_df
@@ -281,25 +276,19 @@ diagnosis_sub %>% dplyr::select(All.Diagnosis.Description..HAMDCT..)
 # this code is PROBLEMATIC and only selects first regex match; instead take the regex expression which is already there by default
 
 diagnosis_sub$ICD <- regmatches(
-  x = pull(diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."]),
+  x = pull(diagnosis_sub[, "description"]),
   m = regexpr(
     pattern = "(?<=\\()[\\d\\.EV]+(?=:)",
     # after ( but not including, \ the \ character, not including the colon; [^\\(]*$ to take the last occurrence of the open bracket, don't want anymore brackets like the case of (lymph node) instead of (ICD)
     # EV because some ICD begins with that followed by the bracket
-    text = pull(diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."]),
+    text = pull(diagnosis_sub[, "description"]),
     perl = TRUE
   )
 )
   
-# diagnosis_sub %>% pull(All.Diagnosis.Code..ICD9..)
-
-# diagnosis_sub %>% pull(ICD)
-# diagnosis_sub %>% pull(All.Diagnosis.Code..ICD9..)
-
 # diagnosis_sub[899, ] # example with the bracket lymph node
 # for debugging to see where regex failed to match
 # diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."][grep(pattern = "(?<=\\()[\\d\\.EV]+(?=:)", x = diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."], perl = TRUE, invert = TRUE)]
-
 
 # extra steps to check after removing the 0 is indeed the intended effect; later turned out is useless as 250.00 is not the same as 250.0
 # diagnosis_sub$ICD_no_0 <- gsub(pattern = ".00", x = diagnosis_sub$ICD, replacement = ".0", fixed = TRUE)
