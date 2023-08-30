@@ -153,6 +153,8 @@ for (i in seq(nrow(weight_df))) {
 # rename to Reference.date, since second time diagnosis.rds the column names are renamed
 diagnosis <- diagnosis %>% rename(Reference.Date. = date)
 
+print(paste0("To begin with, we have ", length(unique(diagnosis$ReferenceKey)), " (diagnosis.rds) patients in our cohort."))
+
 ra_vector <- unique(grep(
   pattern =
     "714\\.[0128]",
@@ -259,8 +261,14 @@ print(paste0(
   length(unique(diagnosis_sub$ReferenceKey)) - length(unique(unwanted_ra))
 ))
 
+# (NEW) filter to remove where first_ra is before 2009, because our prescription data is only from 2009 onwards
+diagnosis_sub <- diagnosis_sub %>%
+  filter(as.Date(first_ra) >= as.Date("2009-01-01"))
 
-
+print(paste0(
+  "Because our prescription data is from 2009 onwards, we removed patients diagnosed with RA before 2009, leaving ", 
+  length(unique(diagnosis_sub$ReferenceKey))
+))
 
 # diagnosis_sub <- diagnosis_sub %>% 
 #   filter(!ReferenceKey %in% unwanted_ra)
@@ -268,10 +276,6 @@ print(paste0(
 # diagnosis_sub$Patient.Type..IP.OP.A.E.. <- trimws(diagnosis_sub$Patient.Type..IP.OP.A.E..)
 
 # get weighting score -----------------------------------------------------
-# weight_df
-# diagnosis_sub
-diagnosis_sub %>% dplyr::select(All.Diagnosis.Description..HAMDCT..)
-
 
 # this code is PROBLEMATIC and only selects first regex match; instead take the regex expression which is already there by default
 
@@ -285,7 +289,7 @@ diagnosis_sub$ICD <- regmatches(
     perl = TRUE
   )
 )
-  
+
 # diagnosis_sub[899, ] # example with the bracket lymph node
 # for debugging to see where regex failed to match
 # diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."][grep(pattern = "(?<=\\()[\\d\\.EV]+(?=:)", x = diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."], perl = TRUE, invert = TRUE)]
@@ -436,7 +440,7 @@ prescription_sub <- prescription %>%
 bioo_string <- bio_df %>% filter(Type == "Bio-originator") %>% select(`Brand name`) %>% pull()
 
 # as per Kuan's advice, if the drug name is just the drug name (i.e. not the brand name of bioo or bios), we can safely assume it is biooriginator
-# and therefore I could add the ddrug name under the bioo_string
+# and therefore I could add the drug name under the bioo_string
 bioo_string <- c(bioo_string, c("INFLIXIMAB", "ADALIMUMAB", "RITUXIMAB"))
 
 bios_string <- bio_df %>% filter(Type == "Biosimilar") %>% select(`Brand name`) %>% pull()
@@ -461,53 +465,34 @@ prescription_sub <- prescription_sub %>%
 # View(unique(s[c("DrugName", "ingredient", "bioo_or_bios")]))
 
 
-
-# Thirdly, now is just brute force to extract the brand names as there is no clever meaningful way of doing so
-prescription_sub <- prescription_sub %>% 
-  mutate(
-    brand = case_when(
-      str_detect(DrugName, "REMICADE") ~ "REMICADE",
-      str_detect(DrugName, "REMSIMA") ~ "REMSIMA",
-      str_detect(DrugName, "HUMIRA") ~ "HUMIRA",
-      str_detect(DrugName, "HULIO") ~ "HULIO",
-      str_detect(DrugName, "ADALLOCE") ~ "ADALLOCE",
-      str_detect(DrugName, "AMGEVITA") ~ "AMGEVITA",
-      str_detect(DrugName, "IDACIO") ~ "IDACIO",
-      str_detect(DrugName, "HYRIMOZ") ~ "HYRIMOZ",
-      str_detect(DrugName, "MABTHERA") ~ "MABTHERA",
-      str_detect(DrugName, "RIXATHON") ~ "RIXATHON",
-      str_detect(DrugName, "TRUXIMA") ~ "TRUXIMA",
-      TRUE ~ NA_character_)
-  ) # note even though a lot of brands, just for sake of completeness; our data has most ly HUMIRA, REMICADE, and REMSIMA; then a few more like MABTHERA, RIXATHON, TRUXIMA, AMGEVITA, HYRIMOZ
-
-
-
-
-# to prove the point our data only has a few of them
-# pattern <- paste(bio_df %>% select(`Brand name`) %>% pull(), collapse = "|")
-# pattern <- gsub(pattern = "[[:space:]\u00A0]", replacement = "", x = pattern)
-# grep(pattern, x = unique(prescription$DrugName), value = TRUE)
-
 # create prescription_traj to label all the RELEVANT drugs ------------------------------------
 
 # now we have a prescription table with cleaned information. Now we need to merge the diagnosis table to ONLY get the pts that meet our criteria, and look at the descriptive statistics of their uptake
-prescription_sub <- prescription_sub %>% filter(ReferenceKey %in% diagnosis_sub$Reference.Key.) # essential step
+prescription_sub <- prescription_sub %>% filter(ReferenceKey %in% diagnosis_sub$ReferenceKey) # essential step
 
 # remove white space and non-breaking space; convert to capital letters
 drugs <- gsub("[[:space:]\u00A0]", "", 
-              toupper(c(cdmard, bioo, bio_df$`Brand name`, unique(bio_df$Ingredient))))
+              toupper(c(cdmard, bioo, bio_df$`Brand name`)))
 
-# these are drugs for treating RA, may be switched around; but what about brand names?
-# prescription <- prescription[1:300000, ]
+# deliberately removed the adalimumab, rituximab, infliximab, or else i would lose some of them in the process
+drugs <- setdiff(drugs, c("INFLIXIMAB", "ADALIMUMAB", "RITUXIMAB"))
+
+# unique(bio_df$Ingredient)
 
 # Clean the drug names using case_when() and str_detect()
+# then after using those brand names, do this cleaning again but with our three drugs, so ensure if there is both the ingredient name and biosimilar brand name, it would preferentially be converted to biosimilar brand name rather than the ingredient name
+
 prescription_traj <- prescription_sub %>%
   mutate(
     DrugName_clean = case_when(
       str_detect(DrugName, str_c(drugs, collapse = "|")) ~ str_extract(DrugName, str_c(drugs, collapse = "|")),
-      TRUE ~ NA_character_
+      str_detect(DrugName, str_c(c("INFLIXIMAB", "ADALIMUMAB", "RITUXIMAB"), collapse = "|")) ~ str_extract(DrugName, str_c(c("INFLIXIMAB", "ADALIMUMAB", "RITUXIMAB"), collapse = "|")),
+      TRUE ~ NA_character_ # this time NA if doesn't fall into any of our drug categories
     )
   )
+
+# any(str_detect(prescription_sub$DrugName, "ADALIMUMAB"))
+# unique(prescription_traj$DrugName_clean)
 
 # where it is not NA; so we only take the non-NA entries
 prescription_traj <- prescription_traj %>% filter(!is.na(DrugName_clean))
@@ -519,11 +504,39 @@ cd20 <- bioo_df %>% filter(`Mode of action` == "CD20") %>%  pull(Agent) %>% toup
 il6 <- bioo_df %>% filter(`Mode of action` == "IL-6") %>%  pull(Agent) %>% toupper()
 jaki <- bioo_df %>% filter(`Mode of action` == "Janus kinase inhibitor") %>%  pull(Agent) %>% toupper()
 
+# now is just brute force to extract the brand names as there is no alternative, clever, and meaningful way of doing so
 
-# some drugs are tnfi but not actually in bioo_df i.e. the brand names humira; so here we add them back with the drug names regardless bios or bioo brand names
-tnfi <- unique(c(tnfi, infliximab, adalimumab))
-# also add that back to cd20
-cd20 <- unique(c(cd20, rituximab))
+prescription_traj <- prescription_traj %>% 
+  mutate(
+    DrugName_clean = case_when(
+      str_detect(DrugName_clean, "REMICADE") ~ "INFLIXIMAB_o",
+      str_detect(DrugName_clean, "REMSIMA") ~ "INFLIXIMAB_s",
+      str_detect(DrugName_clean, "HUMIRA") ~ "ADALIMUMAB_o",
+      str_detect(DrugName_clean, "HULIO") ~ "ADALIMUMAB_s",
+      str_detect(DrugName_clean, "ADALLOCE") ~ "ADALIMUMAB_s",
+      str_detect(DrugName_clean, "AMGEVITA") ~ "ADALIMUMAB_s",
+      str_detect(DrugName_clean, "IDACIO") ~ "ADALIMUMAB_s",
+      str_detect(DrugName_clean, "HYRIMOZ") ~ "ADALIMUMAB_s",
+      str_detect(DrugName_clean, "MABTHERA") ~ "RITUXIMAB_o",
+      str_detect(DrugName_clean, "RIXATHON") ~ "RITUXIMAB_s",
+      str_detect(DrugName_clean, "TRUXIMA") ~ "RITUXIMAB_s",
+      str_detect(DrugName_clean, "INFLIXIMAB") ~ "INFLIXIMAB_o",
+      str_detect(DrugName_clean, "ADALIMUMAB") ~ "ADALIMUMAB_o",
+      str_detect(DrugName_clean, "RITUXIMAB") ~ "RITUXIMAB_o",
+      TRUE ~ DrugName_clean)
+  ) # note even though a lot of brands, just for sake of completeness; our data has mostly HUMIRA, REMICADE, and REMSIMA; then a few more like MABTHERA, RIXATHON, TRUXIMA, AMGEVITA, HYRIMOZ
+
+# checked to make sure behaves correctly
+# unique(prescription_traj$DrugName_clean)
+# this point onwards the brand names have disappeared
+
+# kept the infliximab at the end because if that is the name which remains, it is the biooriginator
+
+
+# (OLD because brand name removed already) some drugs are tnfi but not actually in bioo_df i.e. the brand names humira; so here we add them back with the drug names regardless bios or bioo brand names
+# tnfi <- unique(c(tnfi, infliximab, adalimumab))
+# # also add that back to cd20
+# cd20 <- unique(c(cd20, rituximab))
 
 
 # add column of drug mechanism of action (cDMARD, TNF inhibitor etc) for ease of stratification
@@ -539,6 +552,8 @@ prescription_traj <- prescription_traj %>%
       TRUE ~ NA_character_)
     ) 
 
+saveRDS(object = prescription_traj, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/prescription_traj.rds")
+# readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/prescription_traj.rds")
 
 
 # question 1: Uptake of b/tsDMARDs (stratified by mode of action and bio-originator / biosimilars) by year (2010-2022) among patients with rheumatoid arthritis (RA); ended up using EXCEL instead-------------------------------------
@@ -556,8 +571,7 @@ select(ReferenceKey, bioo_or_bios, DrugName_clean) %>%
 
 print(df, n = 27)
 
-saveRDS(object = prescription_traj, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/prescription_traj.rds")
-# readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/prescription_traj.rds")
+
 
 # barplot which shows uptake by bioo_or_bios ------------------------------
 # Create a subset of the data frame with only the columns we need
@@ -624,103 +638,6 @@ df_reshaped <- df_counts %>%
 write.csv(df_counts, file = "/Users/elsiechan/Desktop/kuan_folder/df_counts.csv", row.names = FALSE)
 write.csv(df_reshaped, file = "/Users/elsiechan/Desktop/kuan_folder/df_reshaped.csv", row.names = FALSE)
 
-# experimentation
-# ggplot(df_counts, aes(x = Year, y = Count, fill = ingredient)) +
-#   geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
-#   scale_fill_brewer(palette = "Set1") +
-#   xlab("Year") +
-#   ylab("Count") +
-#   ggtitle("Frequency of Biooriginator or Biosimilar Uptake by Year and Ingredient") +
-#   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-#   guides(fill = guide_legend(title = "Ingredient and Biooriginator/Biosimilar")) +
-#   scale_x_continuous(breaks = unique(df_counts$Year), labels = unique(df_counts$Year))
-# 
-# 
-# ggplot(df_counts, aes(x = Year, y = Count, fill = ingredient)) +
-#   
-#   geom_bar(data = subset(df_counts, ingredient == "ADALIMUMAB"), aes(fill = bioo_or_bios), stat = "identity", position = position_stack(reverse = TRUE), width = 0.7) +
-#   geom_bar(data = subset(df_counts, ingredient == "INFLIXIMAB"), aes(fill = bioo_or_bios), stat = "identity", position = position_stack(reverse = TRUE), width = 0.7) +
-#   
-#   scale_fill_brewer(palette = "Set1") +
-#   xlab("Year") +
-#   ylab("Count") +
-#   ggtitle("Frequency of Biooriginator or Biosimilar Uptake by Year and Ingredient") +
-#   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-#   guides(fill = guide_legend(title = "Ingredient and Biooriginator/Biosimilar")) +
-#   scale_x_continuous(breaks = unique(df_counts$Year), labels = unique(df_counts$Year))
-# 
-# 
-# ggplot(df_counts, aes(x = Year, y = Count, fill = interaction(ingredient, bioo_or_bios))) +
-#   geom_bar(data = subset(df_counts, ingredient == "ADALIMUMAB"), stat = "identity", position = position_fill(drop = FALSE), width = 0.6) +
-#   geom_bar(data = subset(df_counts, ingredient == "INFLIXIMAB"), stat = "identity", position = position_fill(drop = FALSE), width = 0.6) +
-#   scale_fill_brewer(palette = "Set1") +
-#   xlab("Year") +
-#   ylab("Count") +
-#   ggtitle("Frequency of Biooriginator or Biosimilar Uptake by Year and Ingredient") +
-#   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-#   guides(fill = guide_legend(title = "Ingredient and Biooriginator/Biosimilar")) +
-#   scale_x_continuous(breaks = unique(df_counts$Year), labels = unique(df_counts$Year))
-# 
-
-
-# # create two new columns, variable and value. Variable says "bioo_or_bios" or "ingredient"
-# df_counts_reshaped <- df_counts %>%
-#   pivot_longer(cols = c("bioo_or_bios", "ingredient"), names_to = "variable", values_to = "value")
-# 
-# # if_else. So next two values would be the values if TRUE and FALSE respectively
-# df_counts_reshaped <- df_counts_reshaped %>%
-#   mutate(variable = if_else(variable == "bioo_or_bios", "Biooriginator/Biosimilar", "Ingredient"))
-# # 
-
-
-# # Define color palettes for each ingredient
-# colors_adalimumab <- c("#E41A1C", "#FC8D62")
-# colors_infliximab <- c("#377EB8", "#A6CEE3")
-# colors_rituximab <- c("#4D4D4D", "#F0F0F0")
-# 
-# # Subset data for each ingredient
-# df_adalimumab <- df_counts %>% filter(ingredient == "ADALIMUMAB")
-# df_infliximab <- df_counts %>% filter(ingredient == "RITUXIMAB")
-# df_rituximab <- df_counts %>% filter(ingredient == "INFLIXIMAB")
-# 
-# # Plot the data with manual nudging and color schemes
-# 
-# ggplot() +
-#   geom_bar(data = df_adalimumab, aes(x = Year, y = Count, fill = bioo_or_bios), stat = "identity",
-#            position = position_nudge(x = -0.2), width = 0.25) +
-#   scale_fill_manual(values = colors_adalimumab, name = "ADALIMUMAB\nBiooriginator/Biosimilar") +
-#   geom_bar(data = df_infliximab, aes(x = Year, y = Count, fill = bioo_or_bios), stat = "identity",
-#            position = position_nudge(x = 0), width = 0.25) +
-#   scale_fill_manual(values = colors_infliximab, name = "INFLIXIMAB\nBiooriginator/Biosimilar") +
-#   geom_bar(data = df_rituximab, aes(x = Year, y = Count, fill = bioo_or_bios), stat = "identity", 
-#            position = position_nudge(x = 0.2), width = 0.25) +
-#   scale_fill_manual(values = colors_rituximab, name = "RITUXIMAB\nBiooriginator/Biosimilar") +
-#   xlab("Year") +
-#   ylab("Count") +
-#   ggtitle("Frequency of Biooriginator or Biosimilar Uptake by Year and Ingredient") +
-#   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-#   scale_x_continuous(breaks = unique(df_counts$Year), labels = unique(df_counts$Year))
-# 
-# 
-# 
-# # Plot the data with manual nudging and color schemes
-# ggplot() +
-#   geom_bar(data = df_adalimumab, aes(x = Year, y = Count, fill = bioo_or_bios), stat = "identity", 
-#            position = position_nudge(x = -0.2), width = 0.25) +
-#   scale_fill_manual(values = colors_adalimumab, name = "ADALIMUMAB\nBiooriginator/Biosimilar", aesthetics = "fill") +
-#   geom_bar(data = df_infliximab, aes(x = Year, y = Count, fill = as.factor(bioo_or_bios)), stat = "identity", 
-#            position = position_nudge(x = 0), width = 0.25) +
-#   scale_fill_manual(values = colors_infliximab, name = "INFLIXIMAB\nBiooriginator/Biosimilar", aesthetics = "fill1") +
-#   geom_bar(data = df_rituximab, aes(x = Year, y = Count, fill = as.character(bioo_or_bios)), stat = "identity", 
-#            position = position_nudge(x = 0.2), width = 0.25) +
-#   scale_fill_manual(values = colors_rituximab, name = "RITUXIMAB\nBiooriginator/Biosimilar", aesthetics = "fill2") +
-#   xlab("Year") +
-#   ylab("Count") +
-#   ggtitle("Frequency of Biooriginator or Biosimilar Uptake by Year and Ingredient") +
-#   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-#   scale_x_continuous(breaks = unique(df_counts$Year), labels = unique(df_counts$Year))
-
-
 
 # barplot which shows by MoA ----------------------------------------------
 # this is to show all the moa has been labelled
@@ -745,16 +662,26 @@ print(moa_counts, n = 32)
 
 colnames(moa_counts)
 
-ggplot(moa_counts, aes(x = Year, y = Count, fill = moa)) +
+# ignoring cdmard because those
+ggplot(moa_counts %>% filter(moa != "cdmard"), aes(x = Year, y = Count, fill = moa)) +
   geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
   scale_fill_brewer(palette = "Set1") +
   xlab("Year") +
   ylab("Count") +
-  ggtitle("Frequency of RA drug use by MoA from 2009 to 2022") +
+  ggtitle("Frequency of biologic drug use \n by MoA from 2009 to 2022") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   guides(fill = guide_legend(title = "MoA")) +
   scale_x_continuous(breaks = unique(moa_counts$Year), labels = unique(moa_counts$Year))
 
+moa_counts <- moa_counts %>% filter(moa != "cdmard")
+# reshape data
+moa_reshaped <- moa_counts %>%
+  select(Year, Count, moa) %>%
+  pivot_wider(names_from = moa, values_from = Count, values_fill = 0)
+
+
+write.csv(moa_counts, file = "/Users/elsiechan/Desktop/kuan_folder/moa_counts.csv", row.names = FALSE)
+write.csv(moa_reshaped, file = "/Users/elsiechan/Desktop/kuan_folder/moa_reshaped.csv", row.names = FALSE)
 
 # question 2 treatment trajectory (would allow us to label pt) -----------------------------------------
 # prescription_traj_list <- prescription_traj_list[1:50]
@@ -767,7 +694,6 @@ prescription_traj <- prescription_traj %>%
       TRUE ~ DrugName_clean
     )
   )
-
 
 
 # prescription_traj %>% filter(ReferenceKey == 2154976) %>% arrange(PrescriptionStartDate) %>% tail()
@@ -784,27 +710,44 @@ prescription_traj <- prescription_traj %>%
 df <- prescription_traj
 
 
+# For debugging etc
+# Ref <- 2209539
+# df <- df %>% filter(ReferenceKey == Ref)
+# df <- df %>% arrange(ReferenceKey, PrescriptionStartDate) %>% head(10000)
+# 
+# # testing the function after moa changes
+# merged_df_drugnamed %>% filter(ReferenceKey == Ref) %>% print(n = 100)
+# moanamed_df %>% filter(ReferenceKey == Ref) %>% print(n = 100)
+# debug(extract_traj)
+# debug(gap_merge_per_drug)
+# debug(decompose_dates)
+# undebug(extract_traj)
+# undebug(gap_merge_per_drug)
+# undebug(decompose_dates)
+# df %>% filter(ReferenceKey == Ref) %>% select(PrescriptionStartDate, PrescriptionEndDate, DrugName_clean) %>% arrange(PrescriptionStartDate) %>% print(n = 100)
+# df %>% filter(ReferenceKey == Ref) %>% extract_traj()
+# df %>% filter(ReferenceKey == Ref) %>% mutate(DrugName_clean = moa) %>% extract_traj()
+# 
+# df %>% filter(ReferenceKey == Ref)
 
-Ref <- 2209539
-df <- df %>% filter(ReferenceKey == Ref)
-df <- df %>% arrange(ReferenceKey, PrescriptionStartDate) %>% head(10000)
-
-# testing the function after moa changes
-merged_df_drugnamed %>% filter(ReferenceKey == Ref) %>% print(n = 100)
-moanamed_df %>% filter(ReferenceKey == Ref) %>% print(n = 100)
-debug(extract_traj)
-debug(gap_merge_per_drug)
-debug(decompose_dates)
-undebug(extract_traj)
-undebug(gap_merge_per_drug)
-undebug(decompose_dates)
-df %>% filter(ReferenceKey == Ref) %>% select(PrescriptionStartDate, PrescriptionEndDate, DrugName_clean) %>% arrange(PrescriptionStartDate) %>% print(n = 100)
-df %>% filter(ReferenceKey == Ref) %>% extract_traj()
-df %>% filter(ReferenceKey == Ref) %>% mutate(DrugName_clean = moa) %>% extract_traj()
-
-df %>% filter(ReferenceKey == Ref)
 
 
+# Sankey diagram ----------------------------------------------------------
+unique(df$moa)
+
+df
+drugs
+cdmard
+setdiff(drugs, cdmard)
+
+
+# sankey diagram for btsdmard only, and done before merging df so that we can get rid of the cdmard which is less important
+btsdmard
+unique(df$DrugName_clean)
+unique(df$DrugName_clean_os)
+
+
+# if you DON"T uncomment any of the two lines below, you get merged_df_drugnamed.rds (so neither moa or os, altogether run 3 times)
 
 # UNCOMMENT THIS LINE TO GET BY MOA DF----------------------------
 # this line commented out but would have changed the analysis by MoA instead of DrugName_clean thereafter
@@ -824,6 +767,7 @@ table(merged_df$DrugName_clean)
 
 
 # so the drugnamed would be when I didn't run this line prescription_traj$DrugName_clean <- prescription_traj$moa
+
 # saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_drugnamed.rds")
 # saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_moanamed.rds")
 # saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_drugnamed_os.rds")
