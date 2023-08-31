@@ -15,7 +15,11 @@ librarian::shelf(haven,
                  # MASS, # linear regression stepwise # select disrupts dplyr
                  # ggforce # for sankey
                  knitr, # for tables
-                 kableExtra
+                 kableExtra,
+                 networkD3, # sankey
+                 htmlwidgets,
+                 riverplot,
+                 ggraph
 )
 
 # setwd("/Users/elsiechan/Documents/GitHub/rheumatoid")
@@ -479,6 +483,13 @@ drugs <- setdiff(drugs, c("INFLIXIMAB", "ADALIMUMAB", "RITUXIMAB"))
 
 # unique(bio_df$Ingredient)
 
+# certolizumab pegol, just detect certolizumab instead
+drugs <- replace(drugs, drugs == "CERTOLIZUMABPEGOL", "CERTOLIZUMAB")
+
+# grep(x = prescription_sub$DrugName, pattern = "CERTOLIZUMAB")
+# prescription_sub$DrugName[grep(x = prescription_sub$DrugName, pattern = "CERTOLIZUMAB")]
+
+
 # Clean the drug names using case_when() and str_detect()
 # then after using those brand names, do this cleaning again but with our three drugs, so ensure if there is both the ingredient name and biosimilar brand name, it would preferentially be converted to biosimilar brand name rather than the ingredient name
 
@@ -491,6 +502,7 @@ prescription_traj <- prescription_sub %>%
     )
   )
 
+# unique(prescription_traj$DrugName_clean)
 # any(str_detect(prescription_sub$DrugName, "ADALIMUMAB"))
 # unique(prescription_traj$DrugName_clean)
 
@@ -499,6 +511,9 @@ prescription_traj <- prescription_traj %>% filter(!is.na(DrugName_clean))
 
 
 tnfi <- bioo_df %>% filter(`Mode of action` == "Tumor Necrosis Factor Inhibitor") %>%  pull(Agent) %>% toupper()
+#  correct to get rid of pegol
+tnfi <- replace(tnfi, tnfi == "CERTOLIZUMAB PEGOL", "CERTOLIZUMAB")
+
 cd28 <- bioo_df %>% filter(`Mode of action` == "CD28") %>%  pull(Agent) %>% toupper()
 cd20 <- bioo_df %>% filter(`Mode of action` == "CD20") %>%  pull(Agent) %>% toupper()
 il6 <- bioo_df %>% filter(`Mode of action` == "IL-6") %>%  pull(Agent) %>% toupper()
@@ -506,9 +521,18 @@ jaki <- bioo_df %>% filter(`Mode of action` == "Janus kinase inhibitor") %>%  pu
 
 # now is just brute force to extract the brand names as there is no alternative, clever, and meaningful way of doing so
 
+# as per Kuan's suggestions to simplify the analysis and since no economic significance just umbrella the cdmard under cdmard, makes it easier
 prescription_traj <- prescription_traj %>% 
   mutate(
     DrugName_clean = case_when(
+      DrugName_clean %in% cdmard ~ "cdmard",
+      TRUE ~ DrugName_clean
+    )
+  )
+
+prescription_traj <- prescription_traj %>% 
+  mutate(
+    DrugName_clean_os = case_when(
       str_detect(DrugName_clean, "REMICADE") ~ "INFLIXIMAB_o",
       str_detect(DrugName_clean, "REMSIMA") ~ "INFLIXIMAB_s",
       str_detect(DrugName_clean, "HUMIRA") ~ "ADALIMUMAB_o",
@@ -527,16 +551,35 @@ prescription_traj <- prescription_traj %>%
   ) # note even though a lot of brands, just for sake of completeness; our data has mostly HUMIRA, REMICADE, and REMSIMA; then a few more like MABTHERA, RIXATHON, TRUXIMA, AMGEVITA, HYRIMOZ
 
 # checked to make sure behaves correctly
-# unique(prescription_traj$DrugName_clean)
+# unique(prescription_traj$DrugName_clean_os)
 # this point onwards the brand names have disappeared
 
 # kept the infliximab at the end because if that is the name which remains, it is the biooriginator
 
+# now after creating the os column, also change for the normal column
+prescription_traj <- prescription_traj %>% 
+  mutate(
+    DrugName_clean = case_when(
+      str_detect(DrugName_clean, "REMICADE") ~ "INFLIXIMAB",
+      str_detect(DrugName_clean, "REMSIMA") ~ "INFLIXIMAB",
+      str_detect(DrugName_clean, "HUMIRA") ~ "ADALIMUMAB",
+      str_detect(DrugName_clean, "HULIO") ~ "ADALIMUMAB",
+      str_detect(DrugName_clean, "ADALLOCE") ~ "ADALIMUMAB",
+      str_detect(DrugName_clean, "AMGEVITA") ~ "ADALIMUMAB",
+      str_detect(DrugName_clean, "IDACIO") ~ "ADALIMUMAB",
+      str_detect(DrugName_clean, "HYRIMOZ") ~ "ADALIMUMAB",
+      str_detect(DrugName_clean, "MABTHERA") ~ "RITUXIMAB",
+      str_detect(DrugName_clean, "RIXATHON") ~ "RITUXIMAB",
+      str_detect(DrugName_clean, "TRUXIMA") ~ "RITUXIMAB",
+      str_detect(DrugName_clean, "INFLIXIMAB") ~ "INFLIXIMAB",
+      str_detect(DrugName_clean, "ADALIMUMAB") ~ "ADALIMUMAB",
+      str_detect(DrugName_clean, "RITUXIMAB") ~ "RITUXIMAB",
+      TRUE ~ DrugName_clean)
+  ) 
 
-# (OLD because brand name removed already) some drugs are tnfi but not actually in bioo_df i.e. the brand names humira; so here we add them back with the drug names regardless bios or bioo brand names
-# tnfi <- unique(c(tnfi, infliximab, adalimumab))
-# # also add that back to cd20
-# cd20 <- unique(c(cd20, rituximab))
+
+unique(prescription_traj$DrugName_clean_os)
+unique(prescription_traj$DrugName_clean)
 
 
 # add column of drug mechanism of action (cDMARD, TNF inhibitor etc) for ease of stratification
@@ -551,6 +594,18 @@ prescription_traj <- prescription_traj %>%
       str_detect(DrugName_clean, paste(jaki, collapse = "|")) ~ "jaki",
       TRUE ~ NA_character_)
     ) 
+
+
+# prescription_traj %>% filter(ReferenceKey == 2154976) %>% arrange(PrescriptionStartDate) %>% tail()
+
+# this line to give extra info if O or S being used
+# prescription_traj <- prescription_traj %>%
+#   mutate(DrugName_clean_os = case_when(
+#     bioo_or_bios == "o" ~ paste0(DrugName_clean, "_o"),
+#     bioo_or_bios == "s" ~ paste0(DrugName_clean, "_s"),
+#     TRUE ~ DrugName_clean
+#   ))
+
 
 saveRDS(object = prescription_traj, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/prescription_traj.rds")
 # readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/prescription_traj.rds")
@@ -674,6 +729,7 @@ ggplot(moa_counts %>% filter(moa != "cdmard"), aes(x = Year, y = Count, fill = m
   scale_x_continuous(breaks = unique(moa_counts$Year), labels = unique(moa_counts$Year))
 
 moa_counts <- moa_counts %>% filter(moa != "cdmard")
+
 # reshape data
 moa_reshaped <- moa_counts %>%
   select(Year, Count, moa) %>%
@@ -685,29 +741,6 @@ write.csv(moa_reshaped, file = "/Users/elsiechan/Desktop/kuan_folder/moa_reshape
 
 # question 2 treatment trajectory (would allow us to label pt) -----------------------------------------
 # prescription_traj_list <- prescription_traj_list[1:50]
-
-# as per Kuan's suggestions to simplify the analysis and since no economic significance just umbrella the cdmard under cdmard, makes it easier
-prescription_traj <- prescription_traj %>% 
-  mutate(
-    DrugName_clean = case_when(
-      DrugName_clean %in% cdmard ~ "cdmard",
-      TRUE ~ DrugName_clean
-    )
-  )
-
-
-# prescription_traj %>% filter(ReferenceKey == 2154976) %>% arrange(PrescriptionStartDate) %>% tail()
-
-# this line to give extra info if O or S being used
-prescription_traj <- prescription_traj %>%
-  mutate(DrugName_clean_os = case_when(
-    bioo_or_bios == "o" ~ paste0(DrugName_clean, "_o"),
-    bioo_or_bios == "s" ~ paste0(DrugName_clean, "_s"),
-    TRUE ~ DrugName_clean
-  ))
-
-
-df <- prescription_traj
 
 
 # For debugging etc
@@ -733,19 +766,102 @@ df <- prescription_traj
 
 
 # Sankey diagram ----------------------------------------------------------
-unique(df$moa)
 
-df
-drugs
-cdmard
-setdiff(drugs, cdmard)
+# same as line 608 prescription_traj
+# readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/prescription_traj.rds")
+df <- prescription_traj
+btsdmard <- c(tnfi, cd28, cd20, il6, jaki)
 
+# (OLD) filter out cdmard, infliximab, leaving only btsdmard
+# because infliximab is one day IV
+# btsdmard_no_inf <- setdiff(btsdmard, "INFLIXIMAB")
 
-# sankey diagram for btsdmard only, and done before merging df so that we can get rid of the cdmard which is less important
-btsdmard
+df <- prescription_traj %>%
+  filter(DrugName_clean %in% btsdmard)
+
+# prescription_traj %>% filter(DrugName_clean == "INFLIXIMAB") %>% mutate(duration = PrescriptionEndDate - PrescriptionStartDate) %>% group_by(duration) %>%
+#   summarize(count = n())
+
+# filter to exclude where infliximab AND duration less than 518400
+df <- df  %>% mutate(duration = PrescriptionEndDate - PrescriptionStartDate) %>% filter(DrugName_clean != "INFLIXIMAB" | duration >= 518400)
+
+df <- df %>% select(-duration)
+
 unique(df$DrugName_clean)
-unique(df$DrugName_clean_os)
+unique(prescription_traj$DrugName_clean)
 
+
+source("/Users/elsiechan/Documents/GitHub/rheumatoid/02_extract_traj.R")
+
+unique(merged_df$DrugName_clean)
+# saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_sankey.rds")
+
+sankey_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_sankey.rds")
+
+sankey_df <- merged_df
+
+
+
+# filter where duration < 14 days
+sankey_df <- sankey_df %>% filter(duration >= 14)
+
+
+# if followed by the same DrugName_clean, then just simply merge because Sankey, breaks are not included
+# so only take the first row of each ReferenceKey or where consecutive are not the same
+# this step is after filtering by duration in case you get two same drugs if you did it the other way round. Which means regimen <14 days do not constitute a change in treatment trajectory
+sankey_df <- sankey_df %>%
+  group_by(ReferenceKey) %>%
+  filter(row_number() == 1 | lag(DrugName_clean) != DrugName_clean)
+
+
+# extract only the first 4 levels (max) for each patient
+sankey_df <- sankey_df %>% group_by(ReferenceKey) %>%
+  slice(1:4)
+
+sankey_df <- sankey_df %>% ungroup()
+
+df <- sankey_df
+
+sankey_df <- df
+
+
+# Split the data by ReferenceKey
+split_df <- split(sankey_df %>% select(ReferenceKey, DrugName_clean), sankey_df$ReferenceKey)
+
+df <- split_df[[8]]
+
+label_and_pivot <- function(df, group, DrugName_clean, ReferenceKey) {
+  df$group <- seq(nrow(df))
+  
+  df <- df %>%
+    pivot_wider(names_from = group,
+                values_from = DrugName_clean,
+                names_prefix = "group_")
+  
+  df <- df %>% select(-ReferenceKey)
+  return(df)
+}
+
+# sample for debugging
+# label_and_pivot(split_df[[8]])
+# sankey_tabulated <- bind_rows(lapply(split_df[1:100], FUN = label_and_pivot))
+
+# rows are bound together
+sankey_tabulated <- bind_rows(lapply(split_df, FUN = label_and_pivot))
+
+# add new column called count; then collapse the rows
+sankey_tabulated <- sankey_tabulated %>%
+  group_by(group_1, group_2, group_3, group_4) %>%
+  mutate(count = n()) %>%
+  ungroup() %>%
+  distinct(group_1, group_2, group_3, group_4, .keep_all = TRUE)
+
+sankey_tabulated <- sankey_tabulated %>% arrange(desc(count))
+
+
+# trajectory by moa, o_s, drug_name ---------------------------------------
+# readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/prescription_traj.rds")
+df <- prescription_traj
 
 # if you DON"T uncomment any of the two lines below, you get merged_df_drugnamed.rds (so neither moa or os, altogether run 3 times)
 
@@ -847,7 +963,7 @@ merged_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df.r
 
 # calculate days before the use of b/tsDMARD (we don't worry about csDMARD most of the time)--------------------------------
 # so these are either b or tsdmard, calculate number of days till the use of it
-btsdmard <- c(tnfi, cd28, cd20, il6, jaki)
+btsdmard <- c(tnfi, cd28, cd20, il6, jaki) # this line of code duplicate, before
 
 # diagnosis_sub is from clean_diagnosis see earlier subtitle of this script
 # join the table to obtain the day of first_ra diagnosis
