@@ -25,7 +25,9 @@ librarian::shelf(haven,
 # setwd("/Users/elsiechan/Documents/GitHub/rheumatoid")
 
 # replace with your path to kuan's folder of rds
-path <- "/Users/elsiechan/Desktop/kuan_folder"
+path <- "/Users/elsiechan/Documents/kuan_folder"
+
+
 
 setwd(path)
 death <- readRDS("Death.RDS")
@@ -397,8 +399,8 @@ scores_df <- left_join(cal_timepoint_score(365, diagnosis_sub, weight_df), score
 # the score after infinitely long i.e. up to current day (273 years)
 scores_df <- left_join(cal_timepoint_score(100000, diagnosis_sub, weight_df), scores_df, by = "Reference.Key.")
 
-# saveRDS(object = scores_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/scores_df.rds")
-# scores_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/scores_df.rds")
+# saveRDS(object = scores_df, file = paste0(path, /saved_rds/scores_df.rds")
+scores_df <- readRDS(paste0(path, "/saved_rds/scores_df.rds"))
 
 
 # one potential problem is if pt was diagnosed e.g. with RA at 2022 December. A year from then would be 2023 Dec when we do not have the data yet, but our data would make it appear as tho the pt has not had any worsening. But we do not know the end-point. Unless first_ra we use that to ignore the consideration of data 1 year from first_ra for the score score_before_365 days. So we could do that downstream using first_ra. 
@@ -607,8 +609,8 @@ prescription_traj <- prescription_traj %>%
 #   ))
 
 
-saveRDS(object = prescription_traj, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/prescription_traj.rds")
-# readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/prescription_traj.rds")
+saveRDS(object = prescription_traj, file = paste0(path, "/saved_rds/prescription_traj.rds"))
+# readRDS(file = paste0(path, "/saved_rds/prescription_traj.rds"))
 
 
 # question 1: Uptake of b/tsDMARDs (stratified by mode of action and bio-originator / biosimilars) by year (2010-2022) among patients with rheumatoid arthritis (RA); ended up using EXCEL instead-------------------------------------
@@ -690,8 +692,8 @@ df_reshaped <- df_counts %>%
   pivot_wider(names_from = ing_bio, values_from = Count, values_fill = 0)
 
 
-write.csv(df_counts, file = "/Users/elsiechan/Desktop/kuan_folder/df_counts.csv", row.names = FALSE)
-write.csv(df_reshaped, file = "/Users/elsiechan/Desktop/kuan_folder/df_reshaped.csv", row.names = FALSE)
+write.csv(df_counts, file = paste0(path, "/df_counts.csv"), row.names = FALSE)
+write.csv(df_reshaped, file = paste0(path, "/df_reshaped.csv"), row.names = FALSE)
 
 
 # barplot which shows by MoA ----------------------------------------------
@@ -736,8 +738,8 @@ moa_reshaped <- moa_counts %>%
   pivot_wider(names_from = moa, values_from = Count, values_fill = 0)
 
 
-write.csv(moa_counts, file = "/Users/elsiechan/Desktop/kuan_folder/moa_counts.csv", row.names = FALSE)
-write.csv(moa_reshaped, file = "/Users/elsiechan/Desktop/kuan_folder/moa_reshaped.csv", row.names = FALSE)
+write.csv(moa_counts, file = paste0(path, "/moa_counts.csv"), row.names = FALSE)
+write.csv(moa_reshaped, file = paste0(path, "/moa_reshaped.csv"), row.names = FALSE)
 
 # question 2 treatment trajectory (would allow us to label pt) -----------------------------------------
 # prescription_traj_list <- prescription_traj_list[1:50]
@@ -771,7 +773,7 @@ write.csv(moa_reshaped, file = "/Users/elsiechan/Desktop/kuan_folder/moa_reshape
 prescription_traj
 
 # same as line 608 prescription_traj
-# readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/prescription_traj.rds")
+# readRDS(paste0(path, "/saved_rds/prescription_traj.rds"))
 btsdmard <- c(tnfi, cd28, cd20, il6, jaki)
 
 # (OLD) filter out cdmard, infliximab, leaving only btsdmard
@@ -796,9 +798,9 @@ unique(prescription_traj$DrugName_clean)
 source("/Users/elsiechan/Documents/GitHub/rheumatoid/02_extract_traj.R")
 
 unique(merged_df$DrugName_clean)
-# saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_sankey.rds")
+# saveRDS(object = merged_df, file = paste0(path, /saved_rds/merged_df_sankey.rds"))
 
-sankey_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_sankey.rds")
+sankey_df <- readRDS(paste0(path, "/saved_rds/merged_df_sankey.rds"))
 
 # filter where duration < 14 days
 sankey_df <- sankey_df %>% filter(duration >= 14)
@@ -857,7 +859,7 @@ sankey_tabulated <- sankey_tabulated %>%
 sankey_tabulated <- sankey_tabulated %>% arrange(desc(count))
 
 
-write.csv(sankey_tabulated, file = "/Users/elsiechan/Desktop/kuan_folder/sankey.csv", row.names = FALSE)
+write.csv(sankey_tabulated, file = paste0(path, "/sankey.csv"), row.names = FALSE)
 
 
 # for debugging, why more than one biologics
@@ -872,7 +874,7 @@ write.csv(sankey_tabulated, file = "/Users/elsiechan/Desktop/kuan_folder/sankey.
 
 
 # trajectory by moa, o_s, drug_name ---------------------------------------
-# readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/prescription_traj.rds")
+# readRDS(paste0(path, "/saved_rds/prescription_traj.rds"))
 df <- prescription_traj
 
 # if you DON"T uncomment any of the two lines below, you get merged_df_drugnamed.rds (so neither moa or os, altogether run 3 times)
@@ -896,14 +898,14 @@ table(merged_df$DrugName_clean)
 
 # so the drugnamed would be when I didn't run this line prescription_traj$DrugName_clean <- prescription_traj$moa
 
-# saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_drugnamed.rds")
-# saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_moanamed.rds")
-# saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_drugnamed_os.rds")
+# saveRDS(object = merged_df, file = paste0(path, "/saved_rds/merged_df_drugnamed.rds"))
+# saveRDS(object = merged_df, file = paste0(path, "/saved_rds/merged_df_moanamed.rds"))
+# saveRDS(object = merged_df, file = paste0(path, "/saved_rds/merged_df_drugnamed_os.rds"))
 
 
-merged_df_drugnamed <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_drugnamed.rds")
-moanamed_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_moanamed.rds")
-merged_df_drugnamed_os <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_drugnamed_os.rds")
+merged_df_drugnamed <- readRDS(paste0(path, "/saved_rds/merged_df_drugnamed.rds"))
+moanamed_df <- readRDS(paste0(path, "/saved_rds/merged_df_moanamed.rds"))
+merged_df_drugnamed_os <- readRDS(paste0(path, "/saved_rds/merged_df_drugnamed_os.rds"))
 
 # moanamed has fewer rows than merged_df, is the reduced version; so we can join, and let it contain redundant information for now
 
@@ -968,8 +970,8 @@ merged_df <- merged_df %>% select(ReferenceKey, PrescriptionStartDate, Prescript
 # merged_df %>% filter(ReferenceKey == 1028527) %>% View()
 # merged_df %>% filter(ReferenceKey == 10174025) %>% View()
 
-# saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df.rds")
-merged_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df.rds")
+saveRDS(object = merged_df, file = paste0(path, "/saved_rds/merged_df.rds"))
+merged_df <- readRDS(paste0(path, "/saved_rds/merged_df.rds"))
 
 
 
@@ -1136,8 +1138,8 @@ merged_df <- merged_df %>%
                                 difftime(death_date, earliest_start_date, units = "days"),
                                 NA))
 
-# saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df2.rds")
-merged_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df2.rds")
+# saveRDS(object = merged_df, file = paste0(path, "/saved_rds/merged_df2.rds"))
+merged_df <- readRDS(paste0(path, "/saved_rds/merged_df2.rds"))
 
 
 # 1a: How long patients can use b/ts DMARDs in Hong Kong, potentially stratified by years to illustrate the improved uptake rate (My personal guesswork is new patients such as diagnosis in 2019 should access to b/ts DMARDs faster than old patients diagnosis in 2009)----------------
@@ -1368,8 +1370,8 @@ ggplot(
     legend.position = "right"
   )
 
-# saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df3.rds")
-merged_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df3.rds")
+# saveRDS(object = merged_df, file = paste0(path, "/saved_rds/merged_df3.rds"))
+merged_df <- readRDS(paste0(path, "/saved_rds/merged_df3.rds"))
 
 # 3: The access time and uptake rate of biosimilars in Hong Kong
 
@@ -1464,8 +1466,8 @@ paste0("Based on the earliest date of use of bio-originator or bio-similar, we c
 # merged_df %>% 
 #   distinct(ReferenceKey, days_to_btsdmard) %>% pull(days_to_btsdmard) %>% is.na() %>% table()
 
-# saveRDS(object = merged_df, file = "/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df4.rds")
-merged_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df4.rds")
+# saveRDS(object = merged_df, file = paste0(path, "/saved_rds/merged_df4.rds"))
+merged_df <- readRDS(paste0(path, "/saved_rds/merged_df4.rds"))
 
 
 # on average how many days until switch? 
