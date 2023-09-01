@@ -767,9 +767,11 @@ write.csv(moa_reshaped, file = "/Users/elsiechan/Desktop/kuan_folder/moa_reshape
 
 # Sankey diagram ----------------------------------------------------------
 
+
+prescription_traj
+
 # same as line 608 prescription_traj
 # readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/prescription_traj.rds")
-df <- prescription_traj
 btsdmard <- c(tnfi, cd28, cd20, il6, jaki)
 
 # (OLD) filter out cdmard, infliximab, leaving only btsdmard
@@ -798,10 +800,6 @@ unique(merged_df$DrugName_clean)
 
 sankey_df <- readRDS("/Users/elsiechan/Desktop/kuan_folder/saved_rds/merged_df_sankey.rds")
 
-sankey_df <- merged_df
-
-
-
 # filter where duration < 14 days
 sankey_df <- sankey_df %>% filter(duration >= 14)
 
@@ -814,21 +812,18 @@ sankey_df <- sankey_df %>%
   filter(row_number() == 1 | lag(DrugName_clean) != DrugName_clean)
 
 
-# extract only the first 4 levels (max) for each patient
+# extract only the first 3 levels (max) for each patient
+# attempted 4 levels but too diversified
 sankey_df <- sankey_df %>% group_by(ReferenceKey) %>%
-  slice(1:4)
+  slice(1:3)
 
-sankey_df <- sankey_df %>% ungroup()
+sankey_df <- sankey_df %>% ungroup() # get rid of referencekey grouping
 
-df <- sankey_df
-
-sankey_df <- df
-
+# df <- sankey_df
+# sankey_df <- df
 
 # Split the data by ReferenceKey
 split_df <- split(sankey_df %>% select(ReferenceKey, DrugName_clean), sankey_df$ReferenceKey)
-
-df <- split_df[[8]]
 
 label_and_pivot <- function(df, group, DrugName_clean, ReferenceKey) {
   df$group <- seq(nrow(df))
@@ -843,20 +838,37 @@ label_and_pivot <- function(df, group, DrugName_clean, ReferenceKey) {
 }
 
 # sample for debugging
+# df <- split_df[[8]]
 # label_and_pivot(split_df[[8]])
 # sankey_tabulated <- bind_rows(lapply(split_df[1:100], FUN = label_and_pivot))
 
 # rows are bound together
 sankey_tabulated <- bind_rows(lapply(split_df, FUN = label_and_pivot))
 
+
+
 # add new column called count; then collapse the rows
 sankey_tabulated <- sankey_tabulated %>%
-  group_by(group_1, group_2, group_3, group_4) %>%
+  group_by(group_1, group_2, group_3) %>%
   mutate(count = n()) %>%
   ungroup() %>%
-  distinct(group_1, group_2, group_3, group_4, .keep_all = TRUE)
+  distinct(group_1, group_2, group_3, .keep_all = TRUE)
 
 sankey_tabulated <- sankey_tabulated %>% arrange(desc(count))
+
+
+write.csv(sankey_tabulated, file = "/Users/elsiechan/Desktop/kuan_folder/sankey.csv", row.names = FALSE)
+
+
+# for debugging, why more than one biologics
+# View(sankey_tabulated)
+# i <- 10441268
+# i <- 1083834
+# i <- 1115849
+# i <- 11760263
+# i <- 4516092
+# merged_df %>% filter(ReferenceKey == i)
+# prescription_traj %>% filter(ReferenceKey == i) %>% select(DrugName_clean, PrescriptionStartDate, PrescriptionEndDate) %>% distinct() %>% arrange(PrescriptionStartDate, PrescriptionEndDate)
 
 
 # trajectory by moa, o_s, drug_name ---------------------------------------
