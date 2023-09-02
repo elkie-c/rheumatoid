@@ -30,6 +30,9 @@ source("/Users/elsiechan/Documents/GitHub/rheumatoid/02_functions.R")
 temp_list <- lapply(X = prescription_traj_list, FUN = extract_traj)
 # temp_list[["1007790"]]
 
+
+
+
 # Define a function to add the ReferenceKey column which is now the name of the list
 add_reference_key <- function(df, key) {
   df$ReferenceKey <- key

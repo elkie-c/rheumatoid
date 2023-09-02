@@ -16,10 +16,13 @@ librarian::shelf(haven,
                  # ggforce # for sankey
                  knitr, # for tables
                  kableExtra,
-                 networkD3, # sankey
+                 networkD3, # sankey but failed in the end
                  htmlwidgets,
                  riverplot,
-                 ggraph
+                 ggraph,
+                 RSelenium, # save plotly
+                 orca, # save plotly
+                 reticulate # save plotly
 )
 
 # setwd("/Users/elsiechan/Documents/GitHub/rheumatoid")
@@ -442,6 +445,8 @@ prescription_sub <- prescription %>%
       TRUE ~ NA_character_)
   )
 
+
+
 # secondly, get the character strings for bios or bioo
 bioo_string <- bio_df %>% filter(Type == "Bio-originator") %>% select(`Brand name`) %>% pull()
 
@@ -500,16 +505,35 @@ prescription_traj <- prescription_sub %>%
     DrugName_clean = case_when(
       str_detect(DrugName, str_c(drugs, collapse = "|")) ~ str_extract(DrugName, str_c(drugs, collapse = "|")),
       str_detect(DrugName, str_c(c("INFLIXIMAB", "ADALIMUMAB", "RITUXIMAB"), collapse = "|")) ~ str_extract(DrugName, str_c(c("INFLIXIMAB", "ADALIMUMAB", "RITUXIMAB"), collapse = "|")),
-      TRUE ~ NA_character_ # this time NA if doesn't fall into any of our drug categories
+      TRUE ~ NA_character_) # this time NA if doesn't fall into any of our drug categories
     )
-  )
+
 
 # unique(prescription_traj$DrugName_clean)
 # any(str_detect(prescription_sub$DrugName, "ADALIMUMAB"))
 # unique(prescription_traj$DrugName_clean)
 
+# prescription_traj %>% filter(is.na(DrugName_clean)) %>% pull(DrugName) %>% unique()
+# prescription_traj %>% filter(is.na(DrugName_clean)) %>% pull(ReferenceKey) %>% unique() %>% length()
+
+# part of the flowchart
+print(
+  paste0(
+    "Of the ",
+    prescription_traj %>% pull(ReferenceKey) %>% unique() %>% length(),
+    " patients, ",
+    prescription_traj %>% pull(ReferenceKey) %>% unique() %>% length() - prescription_traj %>% filter(!is.na(DrugName_clean)) %>% pull(ReferenceKey) %>% unique() %>% length(),
+    " of the RA patients did not have any drug related to RA i.e. cdmard, bmard or tsdmard prescribed to them even though they were labelled with an RA diagnosis. Conversely, ", 
+    prescription_traj %>% filter(!is.na(DrugName_clean)) %>% pull(ReferenceKey) %>% unique() %>% length(), 
+    " RA patients had received any drug of the aforementioned classes."
+  )
+)
+
 # where it is not NA; so we only take the non-NA entries
 prescription_traj <- prescription_traj %>% filter(!is.na(DrugName_clean))
+
+prescription_traj%>% pull(ReferenceKey) %>% unique() %>% length() # 11776
+
 
 
 tnfi <- bioo_df %>% filter(`Mode of action` == "Tumor Necrosis Factor Inhibitor") %>%  pull(Agent) %>% toupper()
@@ -579,10 +603,24 @@ prescription_traj <- prescription_traj %>%
       TRUE ~ DrugName_clean)
   ) 
 
-
 unique(prescription_traj$DrugName_clean_os)
 unique(prescription_traj$DrugName_clean)
 
+
+# prescription_traj %>% filter(DrugName_clean != "cdmard") %>% pull(DrugName_clean) %>% unique()
+
+print(
+  paste0(
+    "Of the ",
+    prescription_traj %>% pull(ReferenceKey) %>% unique() %>% length(),
+    " patients, ",
+    prescription_traj %>% filter(DrugName_clean != "cdmard") %>% pull(ReferenceKey) %>% unique() %>% length(),
+    " of the RA patients had taken bMARD and are therefore included in the biologics-only treatment trajectory analysis."
+  )
+)
+
+
+cdmard <- c(cdmard, "cdmard")
 
 # add column of drug mechanism of action (cDMARD, TNF inhibitor etc) for ease of stratification
 prescription_traj <- prescription_traj %>% 
@@ -861,6 +899,7 @@ sankey_tabulated <- sankey_tabulated %>% arrange(desc(count))
 
 write.csv(sankey_tabulated, file = paste0(path, "/sankey.csv"), row.names = FALSE)
 
+# filtering to only include where counts > 5 can easily be done on excel
 
 # for debugging, why more than one biologics
 # View(sankey_tabulated)
@@ -873,11 +912,16 @@ write.csv(sankey_tabulated, file = paste0(path, "/sankey.csv"), row.names = FALS
 # prescription_traj %>% filter(ReferenceKey == i) %>% select(DrugName_clean, PrescriptionStartDate, PrescriptionEndDate) %>% distinct() %>% arrange(PrescriptionStartDate, PrescriptionEndDate)
 
 
+
 # trajectory by moa, o_s, drug_name ---------------------------------------
-# readRDS(paste0(path, "/saved_rds/prescription_traj.rds"))
+
+prescription_traj <- readRDS(paste0(path, "/saved_rds/prescription_traj.rds"))
 df <- prescription_traj
 
+
 # if you DON"T uncomment any of the two lines below, you get merged_df_drugnamed.rds (so neither moa or os, altogether run 3 times)
+# UNCOMMENT THIS LINE TO REMOVE CDMARD (not used for merging, just for the trajectory where cdmard is not important)
+# df <- df %>% filter(DrugName_clean != "cdmard")
 
 # UNCOMMENT THIS LINE TO GET BY MOA DF----------------------------
 # this line commented out but would have changed the analysis by MoA instead of DrugName_clean thereafter
@@ -896,7 +940,10 @@ table(merged_df$DrugName_clean)
 # merged_df_drugnamed %>% filter(ReferenceKey == 1007790)
 
 
-# so the drugnamed would be when I didn't run this line prescription_traj$DrugName_clean <- prescription_traj$moa
+
+# so the drugnamed would be when I didn't run any of those two lines e.g. prescription_traj$DrugName_clean <- prescription_traj$moa
+
+# saveRDS(object = merged_df, file = paste0(path, "/saved_rds/merged_df_nocdmard.rds"))
 
 # saveRDS(object = merged_df, file = paste0(path, "/saved_rds/merged_df_drugnamed.rds"))
 # saveRDS(object = merged_df, file = paste0(path, "/saved_rds/merged_df_moanamed.rds"))
@@ -975,6 +1022,7 @@ merged_df <- readRDS(paste0(path, "/saved_rds/merged_df.rds"))
 
 
 
+
 # calculate days before the use of b/tsDMARD (we don't worry about csDMARD most of the time)--------------------------------
 # so these are either b or tsdmard, calculate number of days till the use of it
 btsdmard <- c(tnfi, cd28, cd20, il6, jaki) # this line of code duplicate, before
@@ -982,9 +1030,9 @@ btsdmard <- c(tnfi, cd28, cd20, il6, jaki) # this line of code duplicate, before
 # diagnosis_sub is from clean_diagnosis see earlier subtitle of this script
 # join the table to obtain the day of first_ra diagnosis
 merged_df <- left_join(merged_df,
-                       unique(diagnosis_sub[, c("Reference.Key.", 
+                       unique(diagnosis_sub[, c("ReferenceKey", 
                                                 "first_ra")]),
-                       by = c("ReferenceKey" = "Reference.Key."))
+                       by = "ReferenceKey")
 
 
 merged_df$first_ra <- as.Date(merged_df$first_ra)
@@ -1006,8 +1054,16 @@ merged_df <- merged_df %>%
   ) %>%
   ungroup()
 
+
+# debugging to make sure correct
+# merged_df %>% filter(prescription_after_ra == FALSE) %>% pull(ReferenceKey) %>% unique()
+# merged_df %>% filter(ReferenceKey == 1342880) %>% View()
+
+# length(unique(prescription_traj$ReferenceKey))
+
+
 print(paste0("Of the ", length(unique(merged_df$ReferenceKey)), 
-             " patients, we would expect that the earliest date of diagnosis of rheumatoid arthritis must have occured before the prescription of any rheumatoid arthritis drugs. This is indeed the case for ", 
+             " patients, we would expect that the earliest date of diagnosis of rheumatoid arthritis must have occurred before the prescription of any rheumatoid arthritis drugs. This is indeed the case for ", 
              merged_df %>% filter(prescription_after_ra == TRUE) %>% distinct(ReferenceKey) %>% count(), 
              " patients. However, we found that there were ", 
              merged_df %>% filter(prescription_after_ra == FALSE) %>% distinct(ReferenceKey) %>% count(), " exceptions in which the patient received RA-related prescription before the earliest date of rheumatoid arthritis diagnosis. These patients will be excluded from our analysis as they affect the reliability of the number of days relapsed since the use of b/tsDMARD."))
@@ -1065,7 +1121,7 @@ merged_df <- merged_df %>%
 # any(is.na(temp %>% pull(days_to_cdmard)))
 
 
-# date till first bsdmard if any (NA otherwise)
+# date till first btsdmard if any (NA otherwise)
 # btsdmard is made of (tnfi, cd28, cd20, il6, jaki)
 # merged_df %>% pull(DrugName_clean) %>% unique()
 
@@ -1084,14 +1140,16 @@ merged_df <- merged_df %>%
 merged_df$days_to_btsdmard <- as.numeric(merged_df$days_to_btsdmard)
 merged_df$days_to_cdmard <- as.numeric(merged_df$days_to_cdmard)
 
-# print(temp %>% filter(is.na(days_to_btsdmard)), n = 200)
+
+
+
 
 # combine scores_df with merged_df ----------------------------------------
 # if you used full_join, will have a lot of NA rows from scores_df
 merged_df <- dplyr::left_join(merged_df, scores_df, by = c("ReferenceKey" = "Reference.Key."))
 
-# there is one random entry with drug prescription in 1900
-merged_df <- merged_df %>% filter(earliest_start_date > 1950)
+# (OLD) there is one random entry with drug prescription in 1900, but now we filtered by 2009, so it is ok to ignore
+# merged_df <- merged_df %>% filter(earliest_start_date > 1950)
 
 
 
@@ -1150,43 +1208,51 @@ merged_df$first_ra_year <- format(merged_df$first_ra, "%Y")
 merged_df$years_to_btsdmard <- as.numeric(merged_df$days_to_btsdmard / 365.25)
 merged_df$years_to_cdmard <- as.numeric(merged_df$days_to_cdmard / 365.25)
 
-# summarize solves the issue where for the same first_ra value the value seems to pile up and give a erroneous num for days to btsdmard
-merged_df_days <- merged_df %>% 
+
+# problem is many times cdmard is NEGATIVE; so run the below line (or skip) if want to calculate days lapsed between first use of biologics AFTER first use of cDMARD; idea abandoned because when you did prescription_after_ra would already have solved this problem
+# merged_df %>%
+#   mutate(days_to_btsdmard = case_when(
+#     !is.na(days_to_cdmard) ~ days_to_btsdmard + days_to_cdmard,
+#     TRUE ~ days_to_btsdmard
+#   ))
+
+
+# summarize solves the issue where for the same first_ra value the value seems to pile up and give a erroneous num for days to btsdmard, perhaps because more than pt diagnosed on the same date
+merged_df_years <- merged_df %>% 
   filter(prescription_after_ra == TRUE) %>% 
   distinct(ReferenceKey, .keep_all = TRUE) %>% 
   group_by(first_ra) %>%
-  summarize(mean_days_to_btsdmard = mean(days_to_btsdmard),
-            mean_days_to_cdmard = mean(days_to_cdmard))
+  summarize(mean_years_to_btsdmard = mean(years_to_btsdmard),
+            mean_years_to_cdmard = mean(years_to_cdmard))
 
-# 
+
+
 # # Create a bar chart of days_to_btsdmard, stratified by year of diagnosis of the RA
 # # tunable parameters include y = years_to_btsdmard, x = first_ra, first_ra_year
-# ggplot(
-#   data = merged_df_days %>% filter(!is.na(mean_days_to_btsdmard)),
-#   aes(x = first_ra, y = mean_days_to_btsdmard)
-# ) +
-#   geom_col() +
-#   labs(title = "Days to btsdmard by Date of Diagnosis of RA",
-#        x = "Date of Diagnosis of RA", y = "Days to btsdmard")
-
-# merged_df_days %>% pull(days_to_btsdmard)
-# merged_df_days %>% pull(first_ra) %>% table()
 
 # change the variables for ease of plotting
 # x_var <- "first_ra_year"
 # x_label <- "Year of Diagnosis of RA"
 x_var <- "first_ra"
-x_label <- "Date of Diagnosis of RA"
+x_label <- "Date of diagnosis of rheumatoid arthritis"
 
-y_var <- "mean_days_to_cdmard"
-y_label <- "Mean Days to cDMARD"
-y_var <- "mean_days_to_btsdmard"
-y_label <- "Mean Days to btsDMARD"
+y_var <- "mean_years_to_cdmard"
+y_label <- "Mean years to cDMARD"
+y_var <- "mean_years_to_btsdmard"
+y_label <- "Mean years to b/tsDMARD"
 
 
-df <- merged_df_days %>% filter(!is.na(mean_days_to_cdmard))
-df <- merged_df_days %>% filter(!is.na(mean_days_to_btsdmard))
+df <- merged_df_years %>% filter(!is.na(mean_years_to_cdmard))
+df <- merged_df_years %>% filter(!is.na(mean_years_to_btsdmard))
 
+
+# Define the maximum width for each line of the title
+max_title_width <- 40
+
+# Wrap the title text into two lines
+wrapped_title <- stringr::str_wrap(paste0(y_label, " by ", tolower(x_label)), width = max_title_width)
+
+theme_set(theme_bw(base_family = "Arial"))
 
 # Plot the y_var by x_var with gridlines, modified colors, and minor gridlines
 my_plot <- ggplot(
@@ -1196,7 +1262,7 @@ my_plot <- ggplot(
   # ylim(min(merged_df_days$days_to_btsdmard, na.rm = TRUE),
   #      max(merged_df_days$days_to_btsdmard, na.rm = TRUE)) +
   geom_col(fill = "#0072B2", color = "#333333") +
-  labs(title = paste0(y_label, " by ", x_label),
+  labs(title = wrapped_title,
        x = x_label, y = y_label) +
   scale_fill_manual(values = c("#0072B2")) +
   theme_classic() +
@@ -1204,9 +1270,10 @@ my_plot <- ggplot(
         panel.grid.minor = element_line(color = "#EEEEEE", linetype = "dashed"),
         panel.background = element_rect(fill = "#F5F5F5"),
         axis.line = element_line(color = "#333333"),
-        axis.text = element_text(color = "#333333", size = 12),
-        axis.title = element_text(color = "#333333", size = 14, face = "bold"),
-        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+        axis.text = element_text(color = "#333333", size = 11),
+        axis.title = element_text(color = "#333333", size = 11),
+        # plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+        plot.title = element_text(size = 15, face = "bold", hjust = 0.5),
         legend.position = "none")
 
 my_plot
@@ -1215,7 +1282,81 @@ ggsave(paste0(path, "/charts/", "bar_", y_var, ".svg"), my_plot, device = "svg")
 ggsave(paste0(path, "/charts/", "bar_", y_var, ".png"), my_plot, device = "png", dpi = 300)
 
 
-# 1b # plot the scatter chart to find out any relationship between days to cdmard and days to bdmard----------------------------------------------------------------------
+# to show if it is a few drugs that tilted the mean years to less, must show which is the btsdmard for introduced-------------------
+# merged_df %>% 
+#   filter(prescription_after_ra == TRUE) %>% 
+#   distinct(ReferenceKey, .keep_all = TRUE) %>% 
+#   group_by(first_ra) %>%
+#   summarize(mean_years_to_btsdmard = mean(years_to_btsdmard),
+#             mean_years_to_cdmard = mean(years_to_cdmard))
+
+df <- merged_df %>%
+  filter(prescription_after_ra == TRUE, drug_os != "cdmard") %>%
+  group_by(ReferenceKey) %>%
+  slice(1) %>%
+  mutate(drug_os = case_when(
+    str_detect(drug_os, "\\+cdmard") ~ str_replace(drug_os, "\\+cdmard", ""),
+    str_detect(drug_os, "cdmard\\+") ~ str_replace(drug_os, "cdmard\\+", ""),
+    TRUE ~ drug_os
+  )) %>%
+  ungroup() %>%
+  select(ReferenceKey, drug_os, years_to_btsdmard, first_ra)
+
+
+x_var <- "first_ra"
+x_label <- "Date of diagnosis of rheumatoid arthritis"
+y_var <- "years_to_btsdmard"
+y_label <- "Years to b/tsDMARD"
+
+# Define the maximum width for each line of the title
+max_title_width <- 30
+
+# Wrap the title text into two lines
+wrapped_title <- stringr::str_wrap(paste0(y_label, " by ", tolower(x_label)), width = max_title_width)
+
+theme_set(theme_bw(base_family = "Arial"))
+
+
+df$drug_os <- factor(df$drug_os, levels = sort(unique(df$drug_os)))
+
+df <- df %>%
+  mutate(s_or_o = case_when(
+    str_ends(drug_os, "_s") ~ "Biosimilars (adalimumab, infliximab, rituximab)",
+    str_ends(drug_os, "_o") ~ "Biooriginators (adalimumab, infliximab, rituximab)",
+    TRUE ~ "Other biooriginators"
+  ))
+
+my_plot <- ggplot(
+  data = df,
+  aes(x = first_ra, y = years_to_btsdmard, shape = s_or_o, colors = drug_os)
+) +
+  geom_point(size = 0.9, alpha = 0.7) +
+  labs(title = wrapped_title,
+       x = x_label, y = y_label, shape = "First biologic prescribed") +
+  scale_shape_manual(values = c(17, 3, 16)) +
+  guides(color = guide_legend(label.wrap = 5)) +
+  theme_classic() +
+  theme(panel.grid.major = element_line(color = "#DDDDDD"),
+        panel.grid.minor = element_line(color = "#EEEEEE", linetype = "dashed"),
+        panel.background = element_rect(fill = "#F5F5F5"),
+        axis.line = element_line(color = "#333333"),
+        axis.text = element_text(color = "#333333", size = 9),
+        axis.title = element_text(color = "#333333", size = 10),
+        plot.title = element_text(size = 15, face = "bold", hjust = 0.5),
+        legend.title = element_text(face = "bold"),
+        legend.text = element_text(size = 8),
+        legend.margin = margin(t = 0.5, r = 0, b = 0, l = 0)) 
+
+
+my_plot
+
+ggsave(paste0(path, "/charts/", "scatter_by_category", y_var, ".svg"), my_plot, device = "svg")
+ggsave(paste0(path, "/charts/", "scatter_by_category_", y_var, ".png"), my_plot, device = "png", dpi = 300)
+
+
+
+
+# 1b # (OLD) plot the scatter chart to find out any relationship between days to cdmard and days to bdmard----------------------------------------------------------------------
 
 # getting some descriptive statistics
 temp1 <- merged_df %>% 
@@ -1279,7 +1420,7 @@ ggsave(paste0(path, "/charts/", "scatter_", "yrs_to_drug", ".png"), my_plot, dev
 
 
 
-# 1c: using years_to_cdmard and years_to_bts_dmard correcting for score_before_0 to predict dx_to_death
+# 1c: (OLD) using years_to_cdmard and years_to_bts_dmard correcting for score_before_0 to predict dx_to_death------------
 
 # continue to use the df from 1b so we omit the na values for either
 # Fit linear regression model with years_to_cdmard as predictor and score_before_0 as a covariate
@@ -1338,42 +1479,112 @@ merged_df <- merged_df %>%
   left_join(first_btsdmard_df, by = "ReferenceKey")
 
 
+
 merged_df_proportions <- merged_df %>%
   filter(!is.na(first_btsdmard)) %>% 
-  group_by(first_ra_year, first_btsdmard) %>%
+  mutate(first_prescription_year = year(PrescriptionStartDate)) %>% 
+  group_by(ReferenceKey) %>% 
+  slice(1) %>% # to obtain only the first of each ReferenceKey
+  ungroup() %>% 
+  group_by(first_prescription_year, first_btsdmard) %>%
   summarize(n = n()) %>%
-  group_by(first_ra_year) %>%
-  mutate(prop = n / sum(n))
+  group_by(first_prescription_year) %>%
+  mutate(prop = n / sum(n)) %>% 
+  filter(first_prescription_year >= 2009)
+
+
+# merged_df_proportions <- merged_df %>%
+#   filter(!is.na(first_btsdmard)) %>% 
+#   group_by(first_ra_year, first_btsdmard) %>%
+#   summarize(n = n()) %>%
+#   group_by(first_ra_year) %>%
+#   mutate(prop = n / sum(n))
 
 print(merged_df_proportions, n = 200)
 
-ggplot(
+# Define the maximum width for each line of the title
+max_title_width <- 30
+
+# Wrap the title text into two lines
+wrapped_title <- stringr::str_wrap("Proportion of first b/tsDMARD by drug and year", width = max_title_width)
+
+my_plot <- ggplot(
   data = merged_df_proportions,
-  aes(x = first_ra_year, y = prop, color = first_btsdmard, group = first_btsdmard)
+  aes(x = first_prescription_year, y = prop, color = first_btsdmard, group = first_btsdmard)
 ) +
   geom_smooth(method = "loess", se = FALSE, span = 1) +
+  # geom_line() +
   labs(
-    title = "Proportion of First btsDMARD by Drug and Year",
-    x = "Year of Diagnosis of RA",
-    y = "Proportion of First btsDMARD",
-    color = "First btsDMARD Drug"
+    title = wrapped_title,
+    x = "Year of prescription",
+    y = "Proportion of first b/tsDMARD",
+    color = "First b/tsDMARD Drug"
   ) +
-  scale_color_discrete(name = "First btsDMARD Drug") +
-  scale_x_discrete(
-    breaks = seq(min(merged_df_proportions$first_ra_year), max(merged_df_proportions$first_ra_year), by = 5)
+  scale_color_discrete(name = "First b/tsDMARD", 
+                       labels = function(x) stringr::str_to_title(x)) +
+  scale_x_continuous(
+    breaks = seq(min(merged_df_proportions$first_prescription_year), max(merged_df_proportions$first_prescription_year), by = 4)
   ) +
   theme_classic() +
   theme(
-    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-    axis.title = element_text(size = 14, face = "bold"),
-    axis.text = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10),
+    legend.position = "right",
+    panel.grid.major = element_line(color = "gray80", linetype = "dotted"),  # Add major gridlines
+    panel.grid.minor = element_line(color = "gray90", linetype = "dotted")  # Add minor gridlines
+  )
+
+
+my_plot
+
+ggsave(paste0(path, "/charts/", "line_first_btsDMARD.svg"), my_plot, device = "svg")
+ggsave(paste0(path, "/charts/", "line_first_btsDMARD.png"), my_plot, device = "png", dpi = 300)
+
+# for geom_smooth instead
+ggsave(paste0(path, "/charts/", "smooth_line_first_btsDMARD.svg"), my_plot, device = "svg")
+ggsave(paste0(path, "/charts/", "smooth_line_first_btsDMARD.png"), my_plot, device = "png", dpi = 300)
+
+# stacked barchart--------------------
+# Define the maximum width for each line of the title
+max_title_width <- 30
+
+# Wrap the title text into two lines
+wrapped_title <- stringr::str_wrap("Proportion of first b/tsDMARD by drug and year", width = max_title_width)
+
+my_plot <- ggplot(
+  data = merged_df_proportions,
+  aes(x = "", y = prop, fill = first_btsdmard)
+) +
+  geom_bar(stat = "identity", width = 1) +
+  labs(
+    title = wrapped_title,
+    x = "Year of prescription",
+    y = "Proportion of first b/tsDMARD",
+    fill = "First b/tsDMARD Drug"
+  ) +
+  scale_fill_discrete(
+    name = "First b/tsDMARD Drug",
+    labels = function(x) stringr::str_to_title(x)
+  ) +
+  facet_wrap(~first_prescription_year, nrow = 2) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
     legend.position = "right"
   )
+
+
+my_plot
+
+ggsave(paste0(path, "/charts/", "stacked_first_btsDMARD.svg"), my_plot, device = "svg")
+ggsave(paste0(path, "/charts/", "stacked_first_btsDMARD.png"), my_plot, device = "png", dpi = 300)
 
 # saveRDS(object = merged_df, file = paste0(path, "/saved_rds/merged_df3.rds"))
 merged_df <- readRDS(paste0(path, "/saved_rds/merged_df3.rds"))
 
 # 3: The access time and uptake rate of biosimilars in Hong Kong
+
 
 # there is one random entry with drug prescription in 1900
 merged_df <- merged_df %>% filter(earliest_start_date > 1950)
@@ -1562,20 +1773,6 @@ ggplot(df_transitions, aes(y = n, axis1 = from, axis2 = to)) +
 
 
 # definitely needed to calculate the multimorbidity score if of interests from the point days_to_o, and repeated for days_to_s-----------------------------------
-
-merged_df
-
-
-
-
-
-
-
-
-
-
-
-
 # 5: predilection to cause of death if different drugs used (?) ------------------------
 
 merged_df %>% View()
@@ -1785,20 +1982,36 @@ freq_table <- table(year_groups)
 
 # gantt's chart need to be grouped to have some meaning. So group by drug start_date_group so those within 1 year are grouped first followed by duration_group, then drug numbers (monotherapy first, and then those with dual therapy)
 
+
+# strings <- c("cdmard+a", "cdmard", "a+cdmard", "a+cdmard+b", "g+cdmard+d", "remaining")
+# 
+# # Remove one "+" sign when appearing before or after "cdmard"
+# gsub("\\+?(cdmard)", "", strings)
+
+
+
 # downsample the data for speed and clarity
 # create groups based on prescription start dates and duration
 merged_df_downsampled <- merged_df %>%
-  distinct(ReferenceKey) %>%
-  sample_n(size = 300) %>%
-  inner_join(merged_df, by = "ReferenceKey") %>%
+  # for downsampling
+  # distinct(ReferenceKey) %>%
+  # sample_n(size = 300) %>%
+  # inner_join(merged_df, by = "ReferenceKey") %>%
+  # for replacing cdmard
+  mutate(moa = gsub("\\+?(cdmard)", "", moa)) %>%  # remove +cdmard; but some instances have cdmard+b → +b
+  mutate(moa = gsub("^\\+", "", moa)) %>%  # so this step just remove the + at the start
+  filter(moa != "") %>% 
+  # )) %>% # these lines to remove cdmard in case it is not so interesting, we only have biologics instead
   group_by(ReferenceKey) %>% # group_by referencekey before cutting PrescriptionStartDate)
   mutate(start_date_group = 
            cut(earliest_start_date, 
                breaks = seq.Date(as.Date(min(merged_df$PrescriptionStartDate)), 
                                  as.Date(max(merged_df$PrescriptionEndDate)), 
                                  by = "6 months"))) %>% 
-  mutate(duration_group = cut(duration, breaks = c(0, 365, 730, Inf))) %>%
-  arrange(start_date_group, duration_group, n_moa)
+  mutate(duration_moa_group = cut(duration_moa, breaks = c(0, 365, 730, Inf))) %>%
+  arrange(start_date_group, duration_moa_group, moa) # n_moa previously
+
+
 
 # merged_df_downsampled %>% 
 #   distinct(ReferenceKey, .keep_all = TRUE) %>% View()
@@ -1808,7 +2021,6 @@ merged_df_downsampled <- merged_df %>%
 # seq.Date(as.Date(min(merged_df$PrescriptionStartDate)), as.Date(max(merged_df$PrescriptionEndDate)), by = "6 months")
 
 
-
 # Create a data frame with start, end, drug, and patient columns
 df <- merged_df_downsampled %>%
   mutate(patient = as.factor(ReferenceKey)) %>% 
@@ -1816,7 +2028,8 @@ df <- merged_df_downsampled %>%
          patient, 
          start = PrescriptionStartDate, 
          end = PrescriptionEndDate, 
-         drug = moa)
+         moa = moa)
+
 
 # sample df just for showing the gantt's chart for one pt, illustrative purposes only
 # extract_traj(prescription_traj_list[["10140118"]]) # eg to check validity of the plot
@@ -1830,49 +2043,68 @@ df <- merged_df_downsampled %>%
 # print(df, n = 100)
 
 # Define lighter colors for single drugs
-single_colors <- c("cdmard" = "#6d8db8",
-                   "cd28" = "#8fbf8b",
+# single_colors <- c("cdmard" = "#6d8db8",
+#                    "cd28" = "#8fbf8b",
+#                    "jaki" = "#db7e84",
+#                    "il6" = "#d68a53",
+#                    "tnfi" = "#7e7a1c",
+#                    "cd20" = "#b8b87d")
+# 
+# # Define darker colors for drug combinations
+# combo_colors <- c("cdmard+jaki" = "#3c1a61",
+#                   "cdmard+tnfi" = "#5a1c03",
+#                   "cd28+cdmard" = "#145b8d",
+#                   "cdmard+il6" = "#525252",
+#                   "cdmard+il6+jaki" = "#1a5b1a",
+#                   "cd28+cdmard+il6" = "#5e4187",
+#                   "cdmard+jaki+tnfi" = "#3c1403",
+#                   "cd20+cdmard" = "#8b7a3d",
+#                   "cd28+il6" = "#5b3f35",
+#                   "cd28+jaki" = "#9c5e88",
+#                   "cdmard+il6+tnfi" = "#912525",
+#                   "il6+tnfi" = "#7e7a1c",
+#                   "jaki+tnfi" = "#9c5e88",
+#                   "cd28+cdmard+tnfi" = "#a64c00",
+#                   "cd20+cdmard+jaki" = "#8c7c68",
+#                   "cd20+cdmard+tnfi" = "#a64c00",
+#                   "cd20+jaki" = "#9c5e88",
+#                   "cd28+tnfi" = "#a64c00",
+#                   "il6+jaki" = "#9c5e88",
+#                   "cd28+cdmard+jaki" = "#5e4187",
+#                   "cd20+tnfi" = "#a64c00",
+#                   "cd20+cdmard+il6" = "#8c7c68",
+#                   "cd20+cd28+cdmard" = "#5e4187")
+
+# ALTERNATIVELY no cDMARD combination
+single_colors <- c("cd28" = "#8fbf8b",
                    "jaki" = "#db7e84",
                    "il6" = "#d68a53",
                    "tnfi" = "#7e7a1c",
                    "cd20" = "#b8b87d")
 
-# Define darker colors for drug combinations
-combo_colors <- c("cdmard+jaki" = "#3c1a61",
-                  "cdmard+tnfi" = "#5a1c03",
-                  "cd28+cdmard" = "#145b8d",
-                  "cdmard+il6" = "#525252",
-                  "cdmard+il6+jaki" = "#1a5b1a",
-                  "cd28+cdmard+il6" = "#5e4187",
-                  "cdmard+jaki+tnfi" = "#3c1403",
-                  "cd20+cdmard" = "#8b7a3d",
-                  "cd28+il6" = "#5b3f35",
-                  "cd28+jaki" = "#9c5e88",
-                  "cdmard+il6+tnfi" = "#912525",
-                  "il6+tnfi" = "#7e7a1c",
-                  "jaki+tnfi" = "#9c5e88",
-                  "cd28+cdmard+tnfi" = "#a64c00",
-                  "cd20+cdmard+jaki" = "#8c7c68",
-                  "cd20+cdmard+tnfi" = "#a64c00",
-                  "cd20+jaki" = "#9c5e88",
-                  "cd28+tnfi" = "#a64c00",
-                  "il6+jaki" = "#9c5e88",
-                  "cd28+cdmard+jaki" = "#5e4187",
-                  "cd20+tnfi" = "#a64c00",
-                  "cd20+cdmard+il6" = "#8c7c68",
-                  "cd20+cd28+cdmard" = "#5e4187")
+combo_colors <- c("cd28+il6" = "#5b3f35",
+  "cd28+jaki" = "#9c5e88",
+  "il6+tnfi" = "#7e7a1c",
+  "jaki+tnfi" = "#9c5e88",
+  "cd20+jaki" = "#9c5e88",
+  "cd28+tnfi" = "#a64c00",
+  "il6+jaki" = "#9c5e88",
+  "cd20+tnfi" = "#a64c00"
+)
+
 
 # Combine the two palettes
 drug_colors <- c(single_colors, combo_colors)
 
 # Create a new column in the dataframe that assigns the correct color to each drug
-df$color <- drug_colors[df$drug]
+df$color <- drug_colors[df$moa]
 
 # for setting order of gantt's chart
 df$patient <- as.factor(df$patient)
 
 # Reorder the levels based on their appearance in the data
 df$patient <- forcats::fct_inorder(df$patient)
+
 
 # Create the plot
 fig <- df %>%
@@ -1881,9 +2113,9 @@ fig <- df %>%
                y = ~as.character(patient), yend = ~as.character(patient),
                line = list(color = ~color, width = 2), # Use the new color column here
                color = ~color, 
-               name = ~drug, 
+               name = ~moa, 
                hoverinfo = "text",
-               text = ~paste("Drug:", drug,
+               text = ~paste("Drug:", moa,
                              "<br>Start:", format(start, "%d %b, %Y"),
                              "<br>End:", format(end, "%d %b, %Y"),
                              "<br>Patient:", patient),
@@ -1912,7 +2144,27 @@ fig <- fig %>% layout(
   hovermode = 'closest'
 )
 
-fig
+
+# saveRDS(object = fig, file = paste0(path, "/saved_rds/gantt_fig.rds"))
+fig <- readRDS(paste0(path, "/saved_rds/gantt_fig.rds"))
+
+
+paste0(path, "gantt_without_cdmard")
+
+reticulate::use_python("/Users/elsiechan/miniconda3/bin/python")
+reticulate::py_available()
+
+
+fig %>% kaleido(file = paste0(path, "gantt_without_cdmard.png"),
+               selenium = RSelenium::rsDriver(browser = "chrome"))
+
+plotly_IMAGE(fig, width = 800, height = 600, format = "png", out_file = )
+
+# png
+orca(fig, file = paste0(path, "gantt_without_cdmard.png"), width = 1200, height = 800)
+
+# Save the plot as a high-resolution SVG file
+orca(fig, file = paste0(path, "gantt_without_cdmard.svg"), width = 1200, height = 800)
 
 # number of days before first change in regimen
 
@@ -1955,37 +2207,3 @@ df <- prescription_traj %>% filter(ReferenceKey == 10069729) # triple
 # mini summary to look at the numbers we have for NA, bioo_or_bios
 # prescription_traj %>% filter(!is.na(ingredient)) %>% count(ingredient, bioo_or_bios)
 
-
-
-
-
-
-# rough -------------------------------------------------------------------
-# Count the number of unique drugs for each patient and filter for patients with 3 or more unique drugs
-patients_with_3_or_more_drugs <- prescription_traj %>%
-  group_by(ReferenceKey) %>%
-  summarize(n_unique_drugs = n_distinct(DrugName_clean)) %>%
-  filter(n_unique_drugs >= 3) %>%
-  pull(ReferenceKey)
-
-prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[1]) # triple drugs given same time
-prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[2]) # hydroxychloroquine + methotrexate in Jan 16 to March 12th, given in four rows i.e. visited doctor twice, then tofactinib + methotrexate
-prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[3]) # triple drugs given same time (lefounomide, methotrexate, hydroxychloroquine)
-prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[4]) #(same triple)
-prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[6]) # last row called "Keep Record Only" ?
-prescription_traj %>% filter(ReferenceKey == patients_with_3_or_more_drugs[10]) # seemingly hydroxychloroquine + methotrexate → etanercept + methotrexate
-
-# grepping the brand name
-# pt_with_labelled_brand <- prescription %>% 
-#   filter(grepl(pattern = paste(unique(bio_df$`Brand name`), collapse = "|"),
-#                x = DrugName)) %>% 
-#   select(ReferenceKey) %>% 
-#   pull()
-
-# but after grepping the brandname, you STILL want other medications taken by the same pt, because this will tell us whether the pt switched drug, or took additional drugs
-# prescription_sub <- prescription %>% filter(ReferenceKey %in% pt_with_labelled_brand)
-
-
-# Filter the diagnosis table to only get pt who has, in their lifetime, been diagnosed with any in ra_vec
-ra_vector_refkey <- diagnosis[diagnosis$All.Diagnosis.Description..HAMDCT.. %in% ra_vector, "Reference.Key."]
-diagnosis_sub <- diagnosis[diagnosis$Reference.Key. %in% ra_vector_refkey, ]
