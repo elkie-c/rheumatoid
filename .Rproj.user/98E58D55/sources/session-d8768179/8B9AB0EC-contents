@@ -38,6 +38,12 @@ diagnosis <- readRDS("Diagnosis.RDS")
 inpatient <- readRDS("Inpatient.RDS")
 prescription <- readRDS("Prescription.RDS")
 
+# paste0("The prescription data is from ", min(prescription$PrescriptionStartDate), " to ", max(prescription$PrescriptionStartDate))
+
+# sort(prescription$PrescriptionStartDate)
+# earliest_date <- prescription %>%
+#   filter(PrescriptionStartDate > as.Date("2000-01-01")) %>%
+#   summarize(earliest_date = min(PrescriptionStartDate))
 
 
 # read excel sheet of drug list -------------------------------------------
@@ -284,7 +290,7 @@ print(paste0(
 # 
 # diagnosis_sub$Patient.Type..IP.OP.A.E.. <- trimws(diagnosis_sub$Patient.Type..IP.OP.A.E..)
 
-# get weighting score -----------------------------------------------------
+# (OLD) get weighting score -----------------------------------------------------
 
 # this code is PROBLEMATIC and only selects first regex match; instead take the regex expression which is already there by default
 
@@ -475,7 +481,6 @@ prescription_sub <- prescription_sub %>%
 # s <- prescription_sub %>% filter(!is.na(bioo_or_bios)) %>% select(DrugName, ingredient, bioo_or_bios)
 # View(unique(s[c("DrugName", "ingredient", "bioo_or_bios")]))
 
-
 # create prescription_traj to label all the RELEVANT drugs ------------------------------------
 
 # now we have a prescription table with cleaned information. Now we need to merge the diagnosis table to ONLY get the pts that meet our criteria, and look at the descriptive statistics of their uptake
@@ -651,6 +656,51 @@ saveRDS(object = prescription_traj, file = paste0(path, "/saved_rds/prescription
 # readRDS(file = paste0(path, "/saved_rds/prescription_traj.rds"))
 
 
+
+# baseline table ----------------------------------------------------------
+prescription_traj %>%
+  filter(DrugName_clean == "cdmard") %>%
+  distinct(ReferenceKey) %>%
+  nrow()
+
+# first run using full count
+df <- prescription_traj
+
+result_df <- data.frame(DrugName = character(), Full_Count = character(), stringsAsFactors = FALSE)
+
+source("/Users/elsiechan/Documents/GitHub/rheumatoid/05_reference_table_stats.R")
+
+result_df1 <- result_df
+
+# second run obtaining only those with biologics use
+
+# obtain reference key of those with bmard
+temp_ref <- prescription_traj %>% filter(DrugName_clean != "cdmard") %>% select(ReferenceKey) 
+
+df <- prescription_traj[prescription_traj$ReferenceKey %in% temp_ref$ReferenceKey, ]
+
+result_df <- data.frame(DrugName = character(), Full_Count = character(), stringsAsFactors = FALSE)
+
+source("/Users/elsiechan/Documents/GitHub/rheumatoid/05_reference_table_stats.R")
+
+result_df2 <- result_df %>%
+  rename(sub_count = Full_Count)
+
+result_df <- full_join(result_df1, result_df2)
+
+result_df$DrugName <- str_to_title(result_df$DrugName)
+
+result_df <- result_df %>%
+  rename(`2009-2022 subcohort for biologics trajectory analysis` = sub_count,
+        `2009-2022 cohort` = Full_Count)
+
+result_df <- result_df[order(result_df$DrugName != "Total Number", result_df$DrugName != "Cdmard", result_df$DrugName), ]
+
+
+write.csv(result_df, paste0(path, "/charts/", "baseline_df.csv"), row.names = FALSE)
+
+
+
 # question 1: Uptake of b/tsDMARDs (stratified by mode of action and bio-originator / biosimilars) by year (2010-2022) among patients with rheumatoid arthritis (RA); ended up using EXCEL instead-------------------------------------
 
 # number of pts in our subsetted data is 16727
@@ -808,7 +858,7 @@ write.csv(moa_reshaped, file = paste0(path, "/moa_reshaped.csv"), row.names = FA
 # Sankey diagram ----------------------------------------------------------
 
 
-prescription_traj
+
 
 # same as line 608 prescription_traj
 # readRDS(paste0(path, "/saved_rds/prescription_traj.rds"))
