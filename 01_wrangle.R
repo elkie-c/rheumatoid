@@ -694,7 +694,7 @@ result_df <- result_df %>%
   rename(`2009-2022 subcohort for biologics trajectory analysis` = sub_count,
         `2009-2022 cohort` = Full_Count)
 
-result_df <- result_df[order(result_df$DrugName != "Total Number", result_df$DrugName != "Cdmard", result_df$DrugName), ]
+result_df <- result_df[order(result_df$DrugName != "Total Number", c$DrugName != "Cdmard", result_df$DrugName), ]
 
 
 write.csv(result_df, paste0(path, "/charts/", "baseline_df.csv"), row.names = FALSE)
@@ -1246,15 +1246,60 @@ merged_df <- merged_df %>%
                                 difftime(death_date, earliest_start_date, units = "days"),
                                 NA))
 
+# Extract the year of diagnosis of the RA
+merged_df$first_ra_year <- format(merged_df$first_ra, "%Y")
+
 # saveRDS(object = merged_df, file = paste0(path, "/saved_rds/merged_df2.rds"))
 merged_df <- readRDS(paste0(path, "/saved_rds/merged_df2.rds"))
 
 
 # 1a: How long patients can use b/ts DMARDs in Hong Kong, potentially stratified by years to illustrate the improved uptake rate (My personal guesswork is new patients such as diagnosis in 2019 should access to b/ts DMARDs faster than old patients diagnosis in 2009)----------------
+# boxplot -----------------------------------------------------------------
+df <- merged_df %>% 
+  filter(prescription_after_ra == TRUE) %>% 
+  distinct(ReferenceKey, .keep_all = TRUE) %>% 
+  group_by(first_ra)
 
-# Extract the year of diagnosis of the RA
-merged_df$first_ra_year <- format(merged_df$first_ra, "%Y")
 
+
+my_plot <- ggplot(df, aes(x = as.factor(first_ra_year), y = days_to_btsdmard)) +
+  geom_boxplot(fill = "slateblue", alpha = 0.2) +
+  xlab("year of diagnosis")
+
+
+# Define the maximum width for each line of the title
+max_title_width <- 40
+
+# Wrap the title text into two lines
+wrapped_title <- stringr::str_wrap(paste0("Days to btsdmard by year of diagnosis"), width = max_title_width)
+
+# Set the base theme to theme_bw with Arial as the base family
+theme_set(theme_bw(base_family = "Arial"))
+
+# Plot the boxplot with the specified style elements
+my_plot <- ggplot(df, aes(x = as.factor(first_ra_year), y = days_to_btsdmard)) +
+  geom_boxplot(fill = "slateblue", alpha = 0.2) +
+  labs(title = wrapped_title, x = "Year of diagnosis", y = "Days to btsdmard") +
+  scale_fill_manual(values = c("slateblue")) +
+  theme_classic() +
+  theme(
+    panel.grid.major = element_line(color = "#DDDDDD"),
+    panel.grid.minor = element_line(color = "#EEEEEE", linetype = "dashed"),
+    panel.background = element_rect(fill = "#F5F5F5"),
+    axis.line = element_line(color = "#333333"),
+    axis.text = element_text(color = "#333333", size = 11),
+    axis.title = element_text(color = "#333333", size = 11),
+    plot.title = element_text(size = 15, face = "bold", hjust = 0.5),
+    legend.position = "none"
+  )
+
+# Display the plot
+print(my_plot)
+
+ggsave(paste0(path, "/charts/", "box_days_to_btsdmard.svg"), my_plot, device = "svg")
+ggsave(paste0(path, "/charts/", "box_days_to_btsdmard.png"), my_plot, device = "png", dpi = 300)
+
+# for making the plots (no longer in publication, OLD)-------------
 merged_df$years_to_btsdmard <- as.numeric(merged_df$days_to_btsdmard / 365.25)
 merged_df$years_to_cdmard <- as.numeric(merged_df$days_to_cdmard / 365.25)
 
@@ -1274,7 +1319,6 @@ merged_df_years <- merged_df %>%
   group_by(first_ra) %>%
   summarize(mean_years_to_btsdmard = mean(years_to_btsdmard),
             mean_years_to_cdmard = mean(years_to_cdmard))
-
 
 
 # # Create a bar chart of days_to_btsdmard, stratified by year of diagnosis of the RA
@@ -1506,7 +1550,7 @@ paste0("Linear regression models were used to predict the time to death based on
 
 
 # 2: Among b/ts DMARDs, which one is preferred by local clinicians as first/second line option? Could also stratified by years to demonstrate the change of market share as time goes by (For example, i know the use of infliximab is decreasing year by year)----------------
-# obtain first btsdmard
+# obtain first btsdmard based on grep
 first_btsdmard_df <- merged_df %>%
   # filter(ReferenceKey == 10024714 | ReferenceKey == 100096) %>% 
   group_by(ReferenceKey) %>%
@@ -1514,6 +1558,8 @@ first_btsdmard_df <- merged_df %>%
                     x = drug)) %>%
   slice_min(PrescriptionStartDate) %>%
   ungroup() 
+
+# first_btsdmard_df %>% filter(ReferenceKey == 3447394) %>% View()
 
 # first_btsdmard_df$drug[1] <- "ETANERCEPT+ABATACEPT+INFLIXIMAB+cdmard"
 
@@ -1529,9 +1575,8 @@ merged_df <- merged_df %>%
   left_join(first_btsdmard_df, by = "ReferenceKey")
 
 
-
 merged_df_proportions <- merged_df %>%
-  filter(!is.na(first_btsdmard)) %>% 
+  filter(!is.na(first_btsdmard) & drug != "cdmard") %>% 
   mutate(first_prescription_year = year(PrescriptionStartDate)) %>% 
   group_by(ReferenceKey) %>% 
   slice(1) %>% # to obtain only the first of each ReferenceKey
@@ -1562,8 +1607,8 @@ my_plot <- ggplot(
   data = merged_df_proportions,
   aes(x = first_prescription_year, y = prop, color = first_btsdmard, group = first_btsdmard)
 ) +
-  geom_smooth(method = "loess", se = FALSE, span = 1) +
-  # geom_line() +
+  # geom_smooth(method = "loess", se = FALSE, span = 1) +
+  geom_line() +
   labs(
     title = wrapped_title,
     x = "Year of prescription",
@@ -1584,7 +1629,6 @@ my_plot <- ggplot(
     panel.grid.major = element_line(color = "gray80", linetype = "dotted"),  # Add major gridlines
     panel.grid.minor = element_line(color = "gray90", linetype = "dotted")  # Add minor gridlines
   )
-
 
 my_plot
 
