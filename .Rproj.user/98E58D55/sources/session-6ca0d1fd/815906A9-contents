@@ -1,0 +1,13 @@
+df %>%
+  group_by(first_ra_year) %>%
+  summarise(mean_days_to_btsdmard = mean(days_to_btsdmard, na.rm = TRUE),
+            median_days_to_btsdmard = median(days_to_btsdmard, na.rm = TRUE))
+
+df %>%
+  mutate(year = lubridate::year(PrescriptionStartDate))
+
+unique(df$first_ra_year)
+
+df$days_to_btsdmard
+
+View(df)
