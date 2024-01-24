@@ -19,6 +19,7 @@ librarian::shelf(haven,
                  networkD3, # sankey but failed in the end
                  htmlwidgets,
                  riverplot,
+                 lubridate,
                  ggraph,
                  RSelenium, # save plotly
                  orca, # save plotly
@@ -847,19 +848,13 @@ write.csv(moa_reshaped, file = paste0(path, "/moa_reshaped.csv"), row.names = FA
 # undebug(extract_traj)
 # undebug(gap_merge_per_drug)
 # undebug(decompose_dates)
-# df %>% filter(ReferenceKey == Ref) %>% select(PrescriptionStartDate, PrescriptionEndDate, DrugName_clean) %>% arrange(PrescriptionStartDate) %>% print(n = 100)
-# df %>% filter(ReferenceKey == Ref) %>% extract_traj()
-# df %>% filter(ReferenceKey == Ref) %>% mutate(DrugName_clean = moa) %>% extract_traj()
+# df %>% filter(ReferenceKey == Ref) %>% select(PrescriptionStartDate, PrescriptionEndDate, DrugName_clean) %>% arrange(PrescriptionStartDate) %>% print
 # 
 # df %>% filter(ReferenceKey == Ref)
 
 
 
 # Sankey diagram ----------------------------------------------------------
-
-
-
-
 # same as line 608 prescription_traj
 # readRDS(paste0(path, "/saved_rds/prescription_traj.rds"))
 btsdmard <- c(tnfi, cd28, cd20, il6, jaki)
@@ -1067,7 +1062,7 @@ merged_df <- merged_df %>% select(ReferenceKey, PrescriptionStartDate, Prescript
 # merged_df %>% filter(ReferenceKey == 1028527) %>% View()
 # merged_df %>% filter(ReferenceKey == 10174025) %>% View()
 
-saveRDS(object = merged_df, file = paste0(path, "/saved_rds/merged_df.rds"))
+# saveRDS(object = merged_df, file = paste0(path, "/saved_rds/merged_df.rds"))
 merged_df <- readRDS(paste0(path, "/saved_rds/merged_df.rds"))
 
 
@@ -1180,12 +1175,13 @@ btsdmard_class <- c("jaki", "tnfi", "cd20", "cd28", "il6")
 merged_df <- merged_df %>% 
   filter(grepl(pattern = paste(btsdmard_class, collapse = "|"),
                x = moa)) %>%
-  group_by(ReferenceKey) %>% 
+  group_by(ReferenceKey) %>%
   mutate(earliest_btsdmard_date = min(PrescriptionStartDate)) %>% 
   mutate(days_to_btsdmard = earliest_btsdmard_date - first_ra) %>%
   distinct(ReferenceKey, days_to_btsdmard) %>%
   select(ReferenceKey, days_to_btsdmard) %>% 
   full_join(merged_df)
+
 
 merged_df$days_to_btsdmard <- as.numeric(merged_df$days_to_btsdmard)
 merged_df$days_to_cdmard <- as.numeric(merged_df$days_to_cdmard)
@@ -1260,6 +1256,12 @@ df <- merged_df %>%
   distinct(ReferenceKey, .keep_all = TRUE) %>% 
   group_by(first_ra)
 
+# descriptive for the manuscript
+df %>%
+  group_by(first_ra_year) %>%
+  summarise(mean_days_to_btsdmard = mean(days_to_btsdmard, na.rm = TRUE),
+            median_days_to_btsdmard = median(days_to_btsdmard, na.rm = TRUE))
+
 
 
 my_plot <- ggplot(df, aes(x = as.factor(first_ra_year), y = days_to_btsdmard)) +
@@ -1271,7 +1273,7 @@ my_plot <- ggplot(df, aes(x = as.factor(first_ra_year), y = days_to_btsdmard)) +
 max_title_width <- 40
 
 # Wrap the title text into two lines
-wrapped_title <- stringr::str_wrap(paste0("Days to btsdmard by year of diagnosis"), width = max_title_width)
+wrapped_title <- stringr::str_wrap(paste0("Days to b/tsdmard by year of diagnosis"), width = max_title_width)
 
 # Set the base theme to theme_bw with Arial as the base family
 theme_set(theme_bw(base_family = "Arial"))
@@ -1279,7 +1281,7 @@ theme_set(theme_bw(base_family = "Arial"))
 # Plot the boxplot with the specified style elements
 my_plot <- ggplot(df, aes(x = as.factor(first_ra_year), y = days_to_btsdmard)) +
   geom_boxplot(fill = "slateblue", alpha = 0.2) +
-  labs(title = wrapped_title, x = "Year of diagnosis", y = "Days to btsdmard") +
+  labs(title = wrapped_title, x = "Year of diagnosis", y = "Days to b/tsdmard") +
   scale_fill_manual(values = c("slateblue")) +
   theme_classic() +
   theme(
@@ -1597,6 +1599,10 @@ merged_df_proportions <- merged_df %>%
 
 print(merged_df_proportions, n = 200)
 
+merged_df_proportions$percentage <- merged_df_proportions$prop * 100
+merged_df_proportions
+write.csv(merged_df_proportions, "stacked_barchart_btsdmard_proportion", row.names=FALSE)
+
 # Define the maximum width for each line of the title
 max_title_width <- 30
 
@@ -1678,8 +1684,6 @@ ggsave(paste0(path, "/charts/", "stacked_first_btsDMARD.png"), my_plot, device =
 merged_df <- readRDS(paste0(path, "/saved_rds/merged_df3.rds"))
 
 # 3: The access time and uptake rate of biosimilars in Hong Kong
-
-
 # there is one random entry with drug prescription in 1900
 merged_df <- merged_df %>% filter(earliest_start_date > 1950)
 
@@ -1715,19 +1719,16 @@ merged_df <- merged_df %>%
 # this info is needed. e.g. multimorbidity index would not make sense if bios was taken many days after, then you don't have the baseline 
 # should theoretically take the change in the multimorbidity index score compare with one year after the switch if there ever was one
 
-merged_df %>% 
-  group_by(ReferenceKey) %>% 
-  mutate(first_use_o = ifelse(str_detect(drug_os, "_o"), PrescriptionStartDate, NA_real_)) %>% 
-  View()
-
-colnames(merged_df)
+merged_df <- merged_df %>% 
+  filter(str_detect(first_btsdmard, "ADALIMUMAB|RITUXIMAB|INFLIXIMAB")) %>% 
+  filter(prescription_after_ra == TRUE)
 
 # adding days to o and earliest o date
 merged_df <- merged_df %>% 
   filter(str_detect(drug_os, "_o")) %>% 
-  group_by(ReferenceKey) %>% 
-  mutate(earliest_o_date = min(PrescriptionStartDate)) %>% 
-  mutate(days_to_o = earliest_o_date - earliest_start_date) %>% # rather than first_ra unlike cdmard and bdmard
+  group_by(ReferenceKey) %>%
+  mutate(earliest_o_date = min(PrescriptionStartDate)) %>% # can do because already filtered by those with _o
+  mutate(days_to_o = earliest_o_date - first_ra) %>% # rather than first_ra unlike cdmard and bdmard
   distinct(ReferenceKey, earliest_o_date, days_to_o) %>%
   full_join(merged_df)
 
@@ -1738,7 +1739,7 @@ merged_df <- merged_df %>%
   filter(str_detect(drug_os, "_s")) %>% 
   group_by(ReferenceKey) %>% 
   mutate(earliest_s_date = min(PrescriptionStartDate)) %>% 
-  mutate(days_to_s = earliest_s_date - earliest_start_date) %>%
+  mutate(days_to_s = earliest_s_date - first_ra) %>%
   distinct(ReferenceKey, earliest_s_date, days_to_s) %>%
   full_join(merged_df)
 
@@ -1755,8 +1756,6 @@ merged_df <- merged_df %>%
     TRUE ~ NA_character_
   ))
 
-merged_df %>% View()
-
 
 temp <- merged_df %>% 
   distinct(ReferenceKey, os_trajectory) %>% 
@@ -1770,6 +1769,71 @@ paste0("Based on the earliest date of use of bio-originator or bio-similar, we c
 # it makes sense the above don't add up to the !is.na(days_to_btsdmard) because that is btsdmard; whereas we are just looking at the bdmard with bios and bioo 
 # merged_df %>% 
 #   distinct(ReferenceKey, days_to_btsdmard) %>% pull(days_to_btsdmard) %>% is.na() %>% table()
+
+
+
+# attempt to visualise days to bio_s vs bio_o -----------------------------
+# those first_btsdmard == "ADALIMUMAB", "RITUXIMAB", "INFLIXIMAB"
+# if days_to_o < days_to_s, then bioo group; if days_to_s < days_to_o, then bios group
+# filter to get one row per ReferenceKey
+# generate boxplot such that y-axis is days to first b/tsDMARD, x-axis would be Drug (those three, and subgroup by bioo or bios)
+# boxplot three columns, two for each
+# Filter merged_df based on drug names
+# Filter merged_df based on drug names
+
+
+filtered_df <- merged_df %>%
+  group_by(ReferenceKey) %>%
+  slice(1) %>%
+  ungroup 
+
+# merged_df %>% filter(ReferenceKey == 1034367) %>% View()
+
+
+filtered_df <- filtered_df %>%
+  mutate(group = case_when(
+    os_trajectory %in% c("o_s", "o") ~ "o",
+    os_trajectory %in% c("s", "s_o") ~ "s",
+    TRUE ~ NA_character_
+  ))
+
+# Aggregate the data to get one row per ReferenceKey
+agg_df <- filtered_df %>%
+  group_by(ReferenceKey, first_btsdmard, group) %>%
+  summarise(days_to_btsdmard = median(days_to_btsdmard))
+
+
+# Perform t-test between 'o' and 's' within each drug category
+t_test_results <- agg_df %>%
+  group_by(first_btsdmard) %>%
+  filter(group %in% c("o", "s")) %>%
+  summarise(t_test_pvalue = t.test(days_to_btsdmard ~ group)$p.value)
+
+t_test_results
+
+p <- ggplot(agg_df, aes(x = first_btsdmard, y = days_to_btsdmard, fill = group)) +
+  geom_boxplot(outlier.shape = NA) +  # Remove the dots representing outliers
+  labs(x = "Drug", y = "Days to First b/tsDMARD", title = "Days to first b/tsDMARD stratified by biosimilar or bio-originator") + scale_fill_manual(
+  values = c("o" = brewer.pal(3, "Set1")[1], "s" = brewer.pal(3, "Set1")[2]),
+  labels = c("o" = "Bio-originator", "s" = "Biosimilar")
+)
+
+p + stat_compare_means(label = "p.format", 
+                                  paired = TRUE,
+                                  hide.ns = FALSE,
+                                  inherit.aes = TRUE,
+                       aes(label = after_stat(p.signif)))
+
+stat_compare_means(method = "anova", label.y = 40)+ # Add global p-value
+  stat_compare_means(aes(label = after_stat(p.signif)),
+                     method = "t.test", ref.group = "0.5")
+
+ggsave(paste0(path, "/charts/", "box_days_to_btsDMARD.svg"), my_plot, device = "svg")
+ggsave(paste0(path, "/charts/", "box_days_to_btsDMARD.png"), my_plot, device = "png", dpi = 300)
+
+# visualise whether greater proportion of patients received b/tsDMARD in the bio_s group
+
+
 
 # saveRDS(object = merged_df, file = paste0(path, "/saved_rds/merged_df4.rds"))
 merged_df <- readRDS(paste0(path, "/saved_rds/merged_df4.rds"))

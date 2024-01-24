@@ -1,9 +1,10 @@
 # script sourced by wrangle.R; reused for extracting the treatment trajectory
-
 prescription_traj_list <- split(df, f = df$ReferenceKey)
 
 
 # for debugging -----------------------------------------------------------
+
+
 # extract_traj(prescription_traj_list[[170]])
 # prescription_traj_list[[180]]
 # extract_traj(prescription_traj_list[[180]])
@@ -30,6 +31,7 @@ temp_list <- lapply(X = prescription_traj_list, FUN = extract_traj)
 
 
 
+
 # Define a function to add the ReferenceKey column which is now the name of the list
 add_reference_key <- function(df, key) {
   df$ReferenceKey <- key
@@ -46,6 +48,15 @@ merged_df <- bind_rows(temp_list)
 # Extract the date component from the PrescriptionStartDate and PrescriptionEndDate columns
 merged_df$PrescriptionStartDate <- as.Date(merged_df$PrescriptionStartDate)
 merged_df$PrescriptionEndDate <- as.Date(merged_df$PrescriptionEndDate)
+
+merged_df$duration <-
+  as.numeric(
+    difftime(
+      merged_df$PrescriptionEndDate,
+      merged_df$PrescriptionStartDate,
+      units = "secs"
+    )
+  ) / 86400
 
 # Reorder the columns
 merged_df <- merged_df %>%

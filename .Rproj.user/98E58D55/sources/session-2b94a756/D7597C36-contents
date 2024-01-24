@@ -100,14 +100,14 @@ merge_dates <- function(df) {
 #' gap_merge_per_drug
 #'
 #' @param df 
-#' @param threshold threshold <- 365 # arbitrary threshold for which discontinuity more than threshold is considered a break from the drug use
+#' @param threshold threshold <- 30 # arbitrary threshold for which discontinuity more than threshold is considered a break from the drug use
 #' this function will take the df of EACH drug e.g. all the different periods of methotrexate for the same ReferenceKey and then call two other functions, which are found in 02_functions.R, to yield output. First it identifies gap in the drug prescription, then it merges them based on whether they meet a threshold
 #' this is a recursive function to merge gaps until there are no gaps in case of ranges that are included in each other; quite tricky
 #' @return
 #' @export
 #'
 #' @examples if you want MRE, go to the MRE in functions.R, and then filter to get ONE drug's df
-gap_merge_per_drug <- function(df, threshold = 365) {
+gap_merge_per_drug <- function(df, threshold = 14) {
   # function is in 02_functions script, so apply the gap function there
   df <- gap(df)
   # create a boolean column to check if more or less than threshold, decide if the gap is significant

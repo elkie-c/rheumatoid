@@ -26,140 +26,34 @@ librarian::shelf(haven,
                  reticulate # save plotly
 )
 
-# setwd("/Users/elsiechan/Documents/GitHub/rheumatoid")
-
 # replace with your path to kuan's folder of rds
 path <- "/Users/elsiechan/Documents/kuan_folder"
-
-
-
 setwd(path)
 death <- readRDS("Death.RDS")
 diagnosis <- readRDS("Diagnosis.RDS")
 inpatient <- readRDS("Inpatient.RDS")
 prescription <- readRDS("Prescription.RDS")
 
-# paste0("The prescription data is from ", min(prescription$PrescriptionStartDate), " to ", max(prescription$PrescriptionStartDate))
-
-# sort(prescription$PrescriptionStartDate)
-# earliest_date <- prescription %>%
-#   filter(PrescriptionStartDate > as.Date("2000-01-01")) %>%
-#   summarize(earliest_date = min(PrescriptionStartDate))
-
-
 # read excel sheet of drug list -------------------------------------------
 # Set the file path of the Excel file
 excel_file <- "Drug list.xlsx"
-# sheet_names <- excel_sheets(excel_file)
 
 # Read each sheet as a separate data frame
 bio_df <- read_excel(excel_file, sheet = 1)
 bioo_df <- read_excel(excel_file, sheet = 2)
-# cdmard_df <- read_excel(excel_file, sheet = 3, col_names = FALSE, trim_ws = TRUE)
-# cdmard <- toString(cdmard_df)
 
 # fill with previous non-missing value to give back the value to NA
 bio_df <- tidyr::fill(bio_df, Ingredient)
 
 bioo <- bioo_df$Agent
+
+# cdmard_df <- read_excel(excel_file, sheet = 3, col_names = FALSE, trim_ws = TRUE)
+# cdmard <- toString(cdmard_df)
+
 # manually extracted because the formating of the sheet is a little crude
+
 cdmard <- c("Sulfasalazine", "Mycophenolate", "Methotrexate", "Leflunomide", "Hydroxychloroquine", "Cyclophosphamide", "Ciclosporin", "Azathioprine", "Apremilast", "Cyclosporin")
 cdmard <- toupper(cdmard)
-
-
-# read excel sheet for disease cp -----------------------------------------
-weight_df <- read_excel('MMI.xlsx')
-
-
-# find the row index where DiseaseEntity_260292 is "Dyspepsia"
-row_index <- which(weight_df$DiseaseEntity_26029213 == "Dyspepsia")
-
-# set the value of the ICD9_unref column in the relevant row, because problematic cell
-weight_df[row_index, "ICD9_unref"] <- "536.8"
-
-
-weight_df$Assigned_weight <- as.numeric(weight_df$Assigned_weight)
-
-
-# (no need) clean weight_df (clean ICD codes by expanding hyphen and x)---------------------------------------------------------
-# remove empty space
-weight_df$ICD9_unref <- str_replace_all(weight_df$ICD9_unref, "\\s+", "")
-weight_df$DiseaseEntity_26029213 <- str_replace_all(weight_df$DiseaseEntity_26029213, "\\s+", "")
-
-# these two functions written, first to expand out the hyphen, then to expand out the x
-
-# if there is hyphen, expand the label to create multiple copies of the inclusive numbers, with .x
-expand_hyphen <- function(icd) {
-  # Check if the input contains a hyphen
-  if (grepl("-", icd)) {
-    # Split the input by the hyphen
-    range <- strsplit(icd, "-")[[1]]
-    
-    # Extract the numeric portion of the values
-    start_val <- as.numeric(gsub("[^0-9.]", "", range[1]))
-    end_val <- as.numeric(gsub("[^0-9.]", "", range[2]))
-    
-    # Create a sequence of values from start_val to end_val
-    vals <- seq(start_val, end_val, by = 1)
-    
-    # add back the .x so later the steps can create the multipels of it
-    vals <- paste0(vals, ".x")
-    
-    return(vals)
-  } else {
-    return(icd) # so if hyphen is not grepped, just give the original icd
-  }
-}
-
-expand_x <- function(icd) {
-  # Check if the input contains a hyphen
-  if (grepl("x", icd)) {
-    # Extract the numeric portion of the input
-    val <- gsub("[^0-9.]", "", icd)
-    
-    # Create a sequence of values from val to val+0.9
-    # val <- "428.1."
-    
-    # paste to get all the values from 0 to 9
-    vals <- paste(val, seq(0, 9), sep = "")
-    
-    return(vals)
-  } else {
-    return(icd)
-  }
-}
-
-weight_df$ICD9_clean <- NA
-
-for (i in seq(nrow(weight_df))) {
-  icd_char <- weight_df[i, "ICD9_unref"] %>% pull()
-  
-  # split by comma to get a character vector for each icd_char
-  icd_char <- strsplit(icd_char, ",")[[1]]
-  
-  expand_hyphen_output <- character(0)
-  
-  for (icd in icd_char) {
-    # icd_char[icd_char == icd] <- paste0(expand_hyphen(icd)) # update each index
-    expand_hyphen_output <- c(expand_hyphen_output, expand_hyphen(icd))
-  }
-  
-  expand_x_output <- character(0)
-  for (icd in expand_hyphen_output) {
-    # icd_char[icd_char == icd] <- paste0(expand_hyphen(icd)) # update each index
-    expand_x_output <- c(expand_x_output, expand_x(icd))
-  }
-  
-  weight_df[i, "ICD9_clean"] <- paste(expand_x_output, collapse = ",") # so set the NA, ICD9_clean to this clean value; collapse turns it into one string
-}
-
-# weight_df
-# add these two numbers just to simulate it, MRE
-# icd_char <- paste0(weight_df[6, 2] %>% pull(), ",277.x,", "800")
-# icd_char <- strsplit(x, ",")[[1]]
-
-
-
 
 
 # clean diagnosis ------------------------------------------------------
@@ -169,7 +63,7 @@ for (i in seq(nrow(weight_df))) {
 # rename to Reference.date, since second time diagnosis.rds the column names are renamed
 diagnosis <- diagnosis %>% rename(Reference.Date. = date)
 
-print(paste0("To begin with, we have ", length(unique(diagnosis$ReferenceKey)), " (diagnosis.rds) patients in our cohort."))
+print(paste0("To begin with, we have ", length(unique(diagnosis$ReferenceKey)), " (diagnosis.rds) patients in our cohort before we filtered out those for RA specifically."))
 
 ra_vector <- unique(grep(
   pattern =
@@ -184,7 +78,7 @@ ra_vector <- unique(grep(
 # select out the seronegative, glomerulonephritis
 ra_vector <- grep(pattern = "glomerulonephritis|seronegative", x = ra_vector, perl = TRUE, value = TRUE, invert = TRUE)
 
-# there are some strange diagnosis with rheum, and for the benefit of doubt (and discussion), they are as follows: now the decision is whether you would like to keep these? Could modify the expression above to do that
+# there are some strange diagnosis with rheum
 # Find the strings that contain "rheum" but not in in ra_vector (which we will use for analysis)
 not_ra_vector <- unique(grep(
   pattern =
@@ -277,7 +171,7 @@ print(paste0(
   length(unique(diagnosis_sub$ReferenceKey)) - length(unique(unwanted_ra))
 ))
 
-# (NEW) filter to remove where first_ra is before 2009, because our prescription data is only from 2009 onwards
+# filter to remove where first_ra is before 2009, because our prescription data is only from 2009 onwards
 diagnosis_sub <- diagnosis_sub %>%
   filter(as.Date(first_ra) >= as.Date("2009-01-01"))
 
@@ -286,146 +180,10 @@ print(paste0(
   length(unique(diagnosis_sub$ReferenceKey))
 ))
 
-# diagnosis_sub <- diagnosis_sub %>% 
-#   filter(!ReferenceKey %in% unwanted_ra)
-# 
-# diagnosis_sub$Patient.Type..IP.OP.A.E.. <- trimws(diagnosis_sub$Patient.Type..IP.OP.A.E..)
+# one potential problem is if pt was diagnosed e.g. with RA at 2022 December. A year from then would be 2023 Dec when we do not have the data yet, but our data would make it appear as tho the pt has stuck with that biologic. 
 
-# (OLD) get weighting score -----------------------------------------------------
-
-# this code is PROBLEMATIC and only selects first regex match; instead take the regex expression which is already there by default
-
-diagnosis_sub$ICD <- regmatches(
-  x = pull(diagnosis_sub[, "description"]),
-  m = regexpr(
-    pattern = "(?<=\\()[\\d\\.EV]+(?=:)",
-    # after ( but not including, \ the \ character, not including the colon; [^\\(]*$ to take the last occurrence of the open bracket, don't want anymore brackets like the case of (lymph node) instead of (ICD)
-    # EV because some ICD begins with that followed by the bracket
-    text = pull(diagnosis_sub[, "description"]),
-    perl = TRUE
-  )
-)
-
-# diagnosis_sub[899, ] # example with the bracket lymph node
-# for debugging to see where regex failed to match
-# diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."][grep(pattern = "(?<=\\()[\\d\\.EV]+(?=:)", x = diagnosis_sub[, "All.Diagnosis.Description..HAMDCT.."], perl = TRUE, invert = TRUE)]
-
-# extra steps to check after removing the 0 is indeed the intended effect; later turned out is useless as 250.00 is not the same as 250.0
-# diagnosis_sub$ICD_no_0 <- gsub(pattern = ".00", x = diagnosis_sub$ICD, replacement = ".0", fixed = TRUE)
-# diagnosis_sub %>% filter(ICD != ICD_no_0) %>% select(ICD, ICD_no_0, All.Diagnosis.Description..HAMDCT..)
-
-
-
-# you can't rely on the All.Diagnosis.Code..ICD9.. because at some point after they all turn into english text !?
-# diagnosis_sub <- diagnosis_sub %>% rename(ICD = All.Diagnosis.Code..ICD9..)
-
-# which(nchar(diagnosis_sub %>% pull(ICD)) > 8)
-# pull(diagnosis_sub, ICD)[which(nchar(diagnosis_sub %>% pull(ICD)) > 8)]
-# diagnosis_sub[which(nchar(diagnosis_sub %>% pull(ICD)) > 8), ]
-# options(max.print = 100000)
-
-
-# add before_ra column, boolean for entry whether it was before the first_ra diagnosis
-diagnosis_sub <- diagnosis_sub %>% mutate(before_ra = if_else(Reference.Date. < first_ra, T, F))
-
-
-
-#' cal_timepoint_score
-#' give it a timepoint. e.g. 5 days. Then look for ICDs that happened before, inclusively, 5 days after the diagnosis of first_ra. Takes those ICD score. Uses the weight_df matrix to assign weight, and outputs a df with score for each Referencekey
-#' @param days variable for the number of days. If set to 0, then would be the score BEFORE RA (not including the day of RA). If set to arbitrarily large number, like 100000000, would be the current i.e. most updated ICDs of the pt, all included.
-#' @param diagnosis_sub 
-#' @param weight_df previous weight_df. The weights come from publications
-#'
-#' @return a df called scores_df which has reference key and weighting score for each reference key
-#' @export
-#'
-#' @examples
-cal_timepoint_score <- function(days, diagnosis_sub, weight_df, prefix = "score_before_") {
-  df <- diagnosis_sub %>%
-    mutate(
-      ICD_before_timepoint = case_when(
-        Reference.Date. <= first_ra + days ~ ICD, # preserve ICD code only if the ICD happened more than days (variable) after first_ra
-        TRUE ~ "NA")
-    ) %>% 
-    group_by(Reference.Key.) %>%
-    summarise(ICD_before_timepoint = paste(unique(ICD_before_timepoint), collapse = ","))
-  
-  
-  # create empty df to assign the values in the for loop in this function
-  scores_df <- data.frame(Reference.Key. = character(),
-                          score_before_timepoint = numeric(),
-                          stringsAsFactors = FALSE)
-  
-  # same as last time so for explanation just see above
-  for (i in seq(nrow(df))) {
-    icds_regex <-
-      df[i, "ICD_before_timepoint"] %>% pull() %>% gsub(pattern = ",",
-                                                                replacement = "|",
-                                                                fixed = TRUE) %>% gsub(pattern = ".",
-                                                                                       replacement = "\\.",
-                                                                                       fixed = TRUE) 
-    matching_rows <- grepl(x = weight_df$ICD9_clean,
-                           pattern = icds_regex)
-    
-    # icds_regex
-    # weight_df[matching_rows, ] # to look at the matching rows
-    
-    if (any(matching_rows)) {
-      score_before_timepoint <- weight_df[matching_rows, ] %>% summarise(score = sum(Assigned_weight)) %>% pull()
-    } else {
-      score_before_timepoint <-  0
-    }
-    
-    # do the bind_rows rather than checking the reference key
-    new_row <- data.frame(Reference.Key. = df[i, "Reference.Key."],
-                          score_before_timepoint = score_before_timepoint)
-    scores_df <- bind_rows(scores_df, new_row)
-
-  }
-  
-  # customise the column name to reflect the days
-  names(scores_df)[names(scores_df) == "score_before_timepoint"] <- paste0(prefix, days)
-  
-  return(scores_df)
-  
-}
-
-
-# score before RA; join the new scores df
-scores_df <- cal_timepoint_score(0, diagnosis_sub, weight_df)
-
-# score inclusive of the day of dx of RA (in case pt was diagnosed for problems on top of RA on that consultation day)
-scores_df <- left_join(cal_timepoint_score(1, diagnosis_sub, weight_df), scores_df, by = "Reference.Key.")
-
-# score 1 month after RA
-scores_df <- left_join(cal_timepoint_score(31, diagnosis_sub, weight_df), scores_df, by = "Reference.Key.")
-
-# score 6 months after RA
-scores_df <- left_join(cal_timepoint_score(182, diagnosis_sub, weight_df), scores_df, by = "Reference.Key.")
-
-# score 1 year after RA
-scores_df <- left_join(cal_timepoint_score(365, diagnosis_sub, weight_df), scores_df, by = "Reference.Key.")
-
-# the score after infinitely long i.e. up to current day (273 years)
-scores_df <- left_join(cal_timepoint_score(100000, diagnosis_sub, weight_df), scores_df, by = "Reference.Key.")
-
-# saveRDS(object = scores_df, file = paste0(path, /saved_rds/scores_df.rds")
-scores_df <- readRDS(paste0(path, "/saved_rds/scores_df.rds"))
-
-
-# one potential problem is if pt was diagnosed e.g. with RA at 2022 December. A year from then would be 2023 Dec when we do not have the data yet, but our data would make it appear as tho the pt has not had any worsening. But we do not know the end-point. Unless first_ra we use that to ignore the consideration of data 1 year from first_ra for the score score_before_365 days. So we could do that downstream using first_ra. 
-
-
-# clean prescription df--------------------------------------------------------------
+# clean prescription df which obtains bioo or bios, for those 3 drugs --------------------------------------------------------------
 # from read excel sheet, we have obtained the drug list already. The useful variables would be biosimilar_df, bioo, and cdmard
-
-# filter the prescription to obtain only rows of those three biologics (for DEMONSTRATION only because we are not using this table)
-# prescription_sub <- prescription %>% 
-#   filter(grepl(pattern = paste(unique(bio_df$Ingredient), collapse = "|"),
-#                x = DrugName))
-
-# this table shows there are many labels of just the biologic, but not the brandname. Which means we do not know if those are actually bios or bioo
-# table(prescription_sub$DrugName)
 
 # standardize the drug name into three new columns: ingredient, brand, bioo_or_bios (bios or bioo?)
 # firstly, obtain the character vector for each of the three biologics
@@ -442,7 +200,6 @@ rituximab <- unique(c("RITUXIMAB", rituximab))
 rituximab <- gsub(pattern = "[[:space:]\u00A0]", replacement = "", x = rituximab)
 
 # now, create the ingredient column
-# table(prescription_sub$DrugName)
 prescription_sub <- prescription %>% 
   mutate(
     ingredient = case_when(
@@ -452,18 +209,14 @@ prescription_sub <- prescription %>%
       TRUE ~ NA_character_)
   )
 
-
-
 # secondly, get the character strings for bios or bioo
 bioo_string <- bio_df %>% filter(Type == "Bio-originator") %>% select(`Brand name`) %>% pull()
 
 # as per Kuan's advice, if the drug name is just the drug name (i.e. not the brand name of bioo or bios), we can safely assume it is biooriginator
 # and therefore I could add the drug name under the bioo_string
+# don't HAVE to worry about if it shows both the ingredient and biosimilar; later my mutate if starts by looking for biosimilar name first. This bioo you should still include the ingredient name to capture it in case no other info provided then bioo
 bioo_string <- c(bioo_string, c("INFLIXIMAB", "ADALIMUMAB", "RITUXIMAB"))
-
 bios_string <- bio_df %>% filter(Type == "Biosimilar") %>% select(`Brand name`) %>% pull()
-
-# remove some gaps
 bioo_string <- gsub(pattern = "[[:space:]\u00A0]", replacement = "", x = bioo_string)
 bios_string <- gsub(pattern = "[[:space:]\u00A0]", replacement = "", x = bios_string)
 
@@ -477,7 +230,6 @@ prescription_sub <- prescription_sub %>%
       TRUE ~ NA_character_)
   )
 
-
 # double check here just to check if names extracted properly
 # s <- prescription_sub %>% filter(!is.na(bioo_or_bios)) %>% select(DrugName, ingredient, bioo_or_bios)
 # View(unique(s[c("DrugName", "ingredient", "bioo_or_bios")]))
@@ -485,6 +237,7 @@ prescription_sub <- prescription_sub %>%
 # create prescription_traj to label all the RELEVANT drugs ------------------------------------
 
 # now we have a prescription table with cleaned information. Now we need to merge the diagnosis table to ONLY get the pts that meet our criteria, and look at the descriptive statistics of their uptake
+# so filter prescription table to get only relevant patients
 prescription_sub <- prescription_sub %>% filter(ReferenceKey %in% diagnosis_sub$ReferenceKey) # essential step
 
 # remove white space and non-breaking space; convert to capital letters
@@ -494,50 +247,45 @@ drugs <- gsub("[[:space:]\u00A0]", "",
 # deliberately removed the adalimumab, rituximab, infliximab, or else i would lose some of them in the process
 drugs <- setdiff(drugs, c("INFLIXIMAB", "ADALIMUMAB", "RITUXIMAB"))
 
-# unique(bio_df$Ingredient)
-
 # certolizumab pegol, just detect certolizumab instead
 drugs <- replace(drugs, drugs == "CERTOLIZUMABPEGOL", "CERTOLIZUMAB")
 
+# check for certolizumab; just searching certolizumab also detects certolizumabpegol
 # grep(x = prescription_sub$DrugName, pattern = "CERTOLIZUMAB")
 # prescription_sub$DrugName[grep(x = prescription_sub$DrugName, pattern = "CERTOLIZUMAB")]
 
-
 # Clean the drug names using case_when() and str_detect()
-# then after using those brand names, do this cleaning again but with our three drugs, so ensure if there is both the ingredient name and biosimilar brand name, it would preferentially be converted to biosimilar brand name rather than the ingredient name
-
+# then after using those brand names, do this cleaning again but with our three drugs, so ensure if there is both the ingredient name and biosimilar brand name and bio-originator brand name, it would preferentially be converted to bio-originator or biosimilar brand name first; then check again if missing both for just the ingredient name which would just be the bio-originator 
 prescription_traj <- prescription_sub %>%
   mutate(
     DrugName_clean = case_when(
-      str_detect(DrugName, str_c(drugs, collapse = "|")) ~ str_extract(DrugName, str_c(drugs, collapse = "|")),
+      str_detect(DrugName, str_c(drugs, collapse = "|")) ~ str_extract(DrugName, str_c(drugs, collapse = "|")), # extracts just the matching part first
       str_detect(DrugName, str_c(c("INFLIXIMAB", "ADALIMUMAB", "RITUXIMAB"), collapse = "|")) ~ str_extract(DrugName, str_c(c("INFLIXIMAB", "ADALIMUMAB", "RITUXIMAB"), collapse = "|")),
       TRUE ~ NA_character_) # this time NA if doesn't fall into any of our drug categories
     )
 
+# check where NA what is it?
+# prescription_traj %>% filter(is.na(DrugName_clean)) %>% pull(DrugName) %>% unique()
 
+# check drug matched is correct
 # unique(prescription_traj$DrugName_clean)
 # any(str_detect(prescription_sub$DrugName, "ADALIMUMAB"))
-# unique(prescription_traj$DrugName_clean)
-
-# prescription_traj %>% filter(is.na(DrugName_clean)) %>% pull(DrugName) %>% unique()
-# prescription_traj %>% filter(is.na(DrugName_clean)) %>% pull(ReferenceKey) %>% unique() %>% length()
 
 # part of the flowchart
 print(
   paste0(
     "Of the ",
-    prescription_traj %>% pull(ReferenceKey) %>% unique() %>% length(),
+    prescription_traj %>% distinct(ReferenceKey) %>% nrow(),
     " patients, ",
-    prescription_traj %>% pull(ReferenceKey) %>% unique() %>% length() - prescription_traj %>% filter(!is.na(DrugName_clean)) %>% pull(ReferenceKey) %>% unique() %>% length(),
-    " of the RA patients did not have any drug related to RA i.e. cdmard, bmard or tsdmard prescribed to them even though they were labelled with an RA diagnosis. Conversely, ", 
-    prescription_traj %>% filter(!is.na(DrugName_clean)) %>% pull(ReferenceKey) %>% unique() %>% length(), 
+    prescription_traj %>% distinct(ReferenceKey) %>% nrow() - prescription_traj %>% filter(!is.na(DrugName_clean)) %>% distinct(ReferenceKey) %>% nrow(),
+    " of the RA patients did not have any drug related to RA i.e. cdmard, b/tsmard prescribed to them even though they were labelled with an RA diagnosis. Conversely, ", 
+    prescription_traj %>% filter(!is.na(DrugName_clean)) %>% distinct(ReferenceKey) %>% nrow(),
     " RA patients had received any drug of the aforementioned classes."
   )
 )
 
 # where it is not NA; so we only take the non-NA entries
 prescription_traj <- prescription_traj %>% filter(!is.na(DrugName_clean))
-
 prescription_traj%>% pull(ReferenceKey) %>% unique() %>% length() # 11776
 
 
@@ -552,7 +300,6 @@ il6 <- bioo_df %>% filter(`Mode of action` == "IL-6") %>%  pull(Agent) %>% toupp
 jaki <- bioo_df %>% filter(`Mode of action` == "Janus kinase inhibitor") %>%  pull(Agent) %>% toupper()
 
 # now is just brute force to extract the brand names as there is no alternative, clever, and meaningful way of doing so
-
 # as per Kuan's suggestions to simplify the analysis and since no economic significance just umbrella the cdmard under cdmard, makes it easier
 prescription_traj <- prescription_traj %>% 
   mutate(
@@ -576,7 +323,8 @@ prescription_traj <- prescription_traj %>%
       str_detect(DrugName_clean, "MABTHERA") ~ "RITUXIMAB_o",
       str_detect(DrugName_clean, "RIXATHON") ~ "RITUXIMAB_s",
       str_detect(DrugName_clean, "TRUXIMA") ~ "RITUXIMAB_s",
-      str_detect(DrugName_clean, "INFLIXIMAB") ~ "INFLIXIMAB_o",
+      str_detect(DrugName_clean, "INFLIXIMAB") ~ "INFLIXIMAB_o", # kept the three ingredients name at the end because if that is the name which remains, it is the biooriginator
+
       str_detect(DrugName_clean, "ADALIMUMAB") ~ "ADALIMUMAB_o",
       str_detect(DrugName_clean, "RITUXIMAB") ~ "RITUXIMAB_o",
       TRUE ~ DrugName_clean)
@@ -586,7 +334,6 @@ prescription_traj <- prescription_traj %>%
 # unique(prescription_traj$DrugName_clean_os)
 # this point onwards the brand names have disappeared
 
-# kept the infliximab at the end because if that is the name which remains, it is the biooriginator
 
 # now after creating the os column, also change for the normal column
 prescription_traj <- prescription_traj %>% 
@@ -609,19 +356,16 @@ prescription_traj <- prescription_traj %>%
       TRUE ~ DrugName_clean)
   ) 
 
-unique(prescription_traj$DrugName_clean_os)
-unique(prescription_traj$DrugName_clean)
-
-
-# prescription_traj %>% filter(DrugName_clean != "cdmard") %>% pull(DrugName_clean) %>% unique()
+# unique(prescription_traj$DrugName_clean_os)
+# unique(prescription_traj$DrugName_clean)
 
 print(
   paste0(
     "Of the ",
-    prescription_traj %>% pull(ReferenceKey) %>% unique() %>% length(),
+    prescription_traj %>% distinct(ReferenceKey) %>% nrow(),
     " patients, ",
-    prescription_traj %>% filter(DrugName_clean != "cdmard") %>% pull(ReferenceKey) %>% unique() %>% length(),
-    " of the RA patients had taken bMARD and are therefore included in the biologics-only treatment trajectory analysis."
+    prescription_traj %>% filter(DrugName_clean != "cdmard") %>% distinct(ReferenceKey) %>% nrow(),
+    " of the RA patients had taken bDMARD and are therefore included in the biologics-only treatment trajectory analysis."
   )
 )
 
@@ -654,11 +398,10 @@ prescription_traj <- prescription_traj %>%
 
 
 saveRDS(object = prescription_traj, file = paste0(path, "/saved_rds/prescription_traj.rds"))
-# readRDS(file = paste0(path, "/saved_rds/prescription_traj.rds"))
+# prescription_traj <- readRDS(file = paste0(path, "/saved_rds/prescription_traj.rds"))
 
 
-
-# baseline table ----------------------------------------------------------
+# (OPTIONAL) baseline table ----------------------------------------------------------
 prescription_traj %>%
   filter(DrugName_clean == "cdmard") %>%
   distinct(ReferenceKey) %>%
@@ -697,16 +440,11 @@ result_df <- result_df %>%
 
 result_df <- result_df[order(result_df$DrugName != "Total Number", c$DrugName != "Cdmard", result_df$DrugName), ]
 
-
 write.csv(result_df, paste0(path, "/charts/", "baseline_df.csv"), row.names = FALSE)
 
 
 
 # question 1: Uptake of b/tsDMARDs (stratified by mode of action and bio-originator / biosimilars) by year (2010-2022) among patients with rheumatoid arthritis (RA); ended up using EXCEL instead-------------------------------------
-
-# number of pts in our subsetted data is 16727
-length(unique(prescription_traj$ReferenceKey))
-
 
 #look at the counts 
 df <- prescription_traj %>% 
@@ -716,8 +454,6 @@ select(ReferenceKey, bioo_or_bios, DrugName_clean) %>%
   summarise(count = n())
 
 print(df, n = 27)
-
-
 
 # barplot which shows uptake by bioo_or_bios ------------------------------
 # Create a subset of the data frame with only the columns we need
@@ -770,8 +506,6 @@ ggplot(df_counts, aes(x = Year, y = Count, fill = bioo_or_bios, ingredient)) +
   guides(fill = guide_legend(title = "Ingredient and Biooriginator/Biosimilar")) +
   scale_x_continuous(breaks = unique(df_counts$Year), labels = unique(df_counts$Year))
 
-
-
 # create a new column combining 'ingredient' and 'bioo_or_bios'
 df_counts$ing_bio = paste(df_counts$ingredient, df_counts$bioo_or_bios, sep="_")
 
@@ -780,10 +514,8 @@ df_reshaped <- df_counts %>%
   select(Year, Count, ing_bio) %>%
   pivot_wider(names_from = ing_bio, values_from = Count, values_fill = 0)
 
-
 write.csv(df_counts, file = paste0(path, "/df_counts.csv"), row.names = FALSE)
 write.csv(df_reshaped, file = paste0(path, "/df_reshaped.csv"), row.names = FALSE)
-
 
 # barplot which shows by MoA ----------------------------------------------
 # this is to show all the moa has been labelled
@@ -848,19 +580,13 @@ write.csv(moa_reshaped, file = paste0(path, "/moa_reshaped.csv"), row.names = FA
 # undebug(extract_traj)
 # undebug(gap_merge_per_drug)
 # undebug(decompose_dates)
-# df %>% filter(ReferenceKey == Ref) %>% select(PrescriptionStartDate, PrescriptionEndDate, DrugName_clean) %>% arrange(PrescriptionStartDate) %>% print(n = 100)
-# df %>% filter(ReferenceKey == Ref) %>% extract_traj()
-# df %>% filter(ReferenceKey == Ref) %>% mutate(DrugName_clean = moa) %>% extract_traj()
+# df %>% filter(ReferenceKey == Ref) %>% select(PrescriptionStartDate, PrescriptionEndDate, DrugName_clean) %>% arrange(PrescriptionStartDate) %>% print
 # 
 # df %>% filter(ReferenceKey == Ref)
 
 
 
 # Sankey diagram ----------------------------------------------------------
-
-
-
-
 # same as line 608 prescription_traj
 # readRDS(paste0(path, "/saved_rds/prescription_traj.rds"))
 btsdmard <- c(tnfi, cd28, cd20, il6, jaki)
@@ -1181,12 +907,13 @@ btsdmard_class <- c("jaki", "tnfi", "cd20", "cd28", "il6")
 merged_df <- merged_df %>% 
   filter(grepl(pattern = paste(btsdmard_class, collapse = "|"),
                x = moa)) %>%
-  group_by(ReferenceKey) %>% 
+  group_by(ReferenceKey) %>%
   mutate(earliest_btsdmard_date = min(PrescriptionStartDate)) %>% 
   mutate(days_to_btsdmard = earliest_btsdmard_date - first_ra) %>%
   distinct(ReferenceKey, days_to_btsdmard) %>%
   select(ReferenceKey, days_to_btsdmard) %>% 
   full_join(merged_df)
+
 
 merged_df$days_to_btsdmard <- as.numeric(merged_df$days_to_btsdmard)
 merged_df$days_to_cdmard <- as.numeric(merged_df$days_to_cdmard)
@@ -1604,6 +1331,16 @@ merged_df_proportions <- merged_df %>%
 
 print(merged_df_proportions, n = 200)
 
+merged_df_proportions$percentage <- merged_df_proportions$prop * 100
+
+# merged_df_proportions %>% filter(first_btsdmard == "ADALIMUMAB")
+merged_df_proportions <- merged_df_proportions %>% arrange(first_btsdmard)
+
+print(merged_df_proportions, n = 200)
+write.csv(merged_df_proportions,
+          "stacked_barchart_btsdmard_proportion.csv",
+          row.names = FALSE)
+
 # Define the maximum width for each line of the title
 max_title_width <- 30
 
@@ -1685,8 +1422,6 @@ ggsave(paste0(path, "/charts/", "stacked_first_btsDMARD.png"), my_plot, device =
 merged_df <- readRDS(paste0(path, "/saved_rds/merged_df3.rds"))
 
 # 3: The access time and uptake rate of biosimilars in Hong Kong
-
-
 # there is one random entry with drug prescription in 1900
 merged_df <- merged_df %>% filter(earliest_start_date > 1950)
 
@@ -1722,19 +1457,16 @@ merged_df <- merged_df %>%
 # this info is needed. e.g. multimorbidity index would not make sense if bios was taken many days after, then you don't have the baseline 
 # should theoretically take the change in the multimorbidity index score compare with one year after the switch if there ever was one
 
-merged_df %>% 
-  group_by(ReferenceKey) %>% 
-  mutate(first_use_o = ifelse(str_detect(drug_os, "_o"), PrescriptionStartDate, NA_real_)) %>% 
-  View()
-
-colnames(merged_df)
+merged_df <- merged_df %>% 
+  filter(str_detect(first_btsdmard, "ADALIMUMAB|RITUXIMAB|INFLIXIMAB")) %>% 
+  filter(prescription_after_ra == TRUE)
 
 # adding days to o and earliest o date
 merged_df <- merged_df %>% 
   filter(str_detect(drug_os, "_o")) %>% 
-  group_by(ReferenceKey) %>% 
-  mutate(earliest_o_date = min(PrescriptionStartDate)) %>% 
-  mutate(days_to_o = earliest_o_date - earliest_start_date) %>% # rather than first_ra unlike cdmard and bdmard
+  group_by(ReferenceKey) %>%
+  mutate(earliest_o_date = min(PrescriptionStartDate)) %>% # can do because already filtered by those with _o
+  mutate(days_to_o = earliest_o_date - first_ra) %>% # rather than first_ra unlike cdmard and bdmard
   distinct(ReferenceKey, earliest_o_date, days_to_o) %>%
   full_join(merged_df)
 
@@ -1745,7 +1477,7 @@ merged_df <- merged_df %>%
   filter(str_detect(drug_os, "_s")) %>% 
   group_by(ReferenceKey) %>% 
   mutate(earliest_s_date = min(PrescriptionStartDate)) %>% 
-  mutate(days_to_s = earliest_s_date - earliest_start_date) %>%
+  mutate(days_to_s = earliest_s_date - first_ra) %>%
   distinct(ReferenceKey, earliest_s_date, days_to_s) %>%
   full_join(merged_df)
 
@@ -1762,8 +1494,6 @@ merged_df <- merged_df %>%
     TRUE ~ NA_character_
   ))
 
-merged_df %>% View()
-
 
 temp <- merged_df %>% 
   distinct(ReferenceKey, os_trajectory) %>% 
@@ -1777,6 +1507,71 @@ paste0("Based on the earliest date of use of bio-originator or bio-similar, we c
 # it makes sense the above don't add up to the !is.na(days_to_btsdmard) because that is btsdmard; whereas we are just looking at the bdmard with bios and bioo 
 # merged_df %>% 
 #   distinct(ReferenceKey, days_to_btsdmard) %>% pull(days_to_btsdmard) %>% is.na() %>% table()
+
+
+
+# attempt to visualise days to bio_s vs bio_o -----------------------------
+# those first_btsdmard == "ADALIMUMAB", "RITUXIMAB", "INFLIXIMAB"
+# if days_to_o < days_to_s, then bioo group; if days_to_s < days_to_o, then bios group
+# filter to get one row per ReferenceKey
+# generate boxplot such that y-axis is days to first b/tsDMARD, x-axis would be Drug (those three, and subgroup by bioo or bios)
+# boxplot three columns, two for each
+# Filter merged_df based on drug names
+# Filter merged_df based on drug names
+
+
+filtered_df <- merged_df %>%
+  group_by(ReferenceKey) %>%
+  slice(1) %>%
+  ungroup 
+
+# merged_df %>% filter(ReferenceKey == 1034367) %>% View()
+
+
+filtered_df <- filtered_df %>%
+  mutate(group = case_when(
+    os_trajectory %in% c("o_s", "o") ~ "o",
+    os_trajectory %in% c("s", "s_o") ~ "s",
+    TRUE ~ NA_character_
+  ))
+
+# Aggregate the data to get one row per ReferenceKey
+agg_df <- filtered_df %>%
+  group_by(ReferenceKey, first_btsdmard, group) %>%
+  summarise(days_to_btsdmard = median(days_to_btsdmard))
+
+
+# Perform t-test between 'o' and 's' within each drug category
+t_test_results <- agg_df %>%
+  group_by(first_btsdmard) %>%
+  filter(group %in% c("o", "s")) %>%
+  summarise(t_test_pvalue = t.test(days_to_btsdmard ~ group)$p.value)
+
+t_test_results
+
+p <- ggplot(agg_df, aes(x = first_btsdmard, y = days_to_btsdmard, fill = group)) +
+  geom_boxplot(outlier.shape = NA) +  # Remove the dots representing outliers
+  labs(x = "Drug", y = "Days to First b/tsDMARD", title = "Days to first b/tsDMARD stratified by biosimilar or bio-originator") + scale_fill_manual(
+  values = c("o" = brewer.pal(3, "Set1")[1], "s" = brewer.pal(3, "Set1")[2]),
+  labels = c("o" = "Bio-originator", "s" = "Biosimilar")
+)
+
+p + stat_compare_means(label = "p.format", 
+                                  paired = TRUE,
+                                  hide.ns = FALSE,
+                                  inherit.aes = TRUE,
+                       aes(label = after_stat(p.signif)))
+
+stat_compare_means(method = "anova", label.y = 40)+ # Add global p-value
+  stat_compare_means(aes(label = after_stat(p.signif)),
+                     method = "t.test", ref.group = "0.5")
+
+ggsave(paste0(path, "/charts/", "box_days_to_btsDMARD.svg"), my_plot, device = "svg")
+ggsave(paste0(path, "/charts/", "box_days_to_btsDMARD.png"), my_plot, device = "png", dpi = 300)
+
+# visualise whether greater proportion of patients received b/tsDMARD in the bio_s group
+
+
 
 # saveRDS(object = merged_df, file = paste0(path, "/saved_rds/merged_df4.rds"))
 merged_df <- readRDS(paste0(path, "/saved_rds/merged_df4.rds"))

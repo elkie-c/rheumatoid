@@ -1,0 +1,72 @@
+
+# generating the csv for sankey
+sankey_df <- readRDS(paste0(path, "/saved_rds/merged_df_sankey.rds"))
+
+# filter where duration < 14 days
+sankey_df <- sankey_df %>% filter(duration >= 14)
+
+# if followed by the same DrugName_clean, then just simply merge because Sankey, breaks are not included
+# so only take the first row of each ReferenceKey or where consecutive are not the same
+# this step is after filtering by duration in case you get two same drugs if you did it the other way round. Which means regimen <14 days do not constitute a change in treatment trajectory
+sankey_df <- sankey_df %>%
+  group_by(ReferenceKey) %>%
+  filter(row_number() == 1 | lag(DrugName_clean) != DrugName_clean)
+
+
+# extract only the first 3 levels (max) for each patient
+# attempted 4 levels but too diversified
+sankey_df <- sankey_df %>% group_by(ReferenceKey) %>%
+  slice(1:3)
+
+sankey_df <- sankey_df %>% ungroup() # get rid of referencekey grouping
+
+# df <- sankey_df
+# sankey_df <- df
+
+# Split the data by ReferenceKey
+split_df <- split(sankey_df %>% select(ReferenceKey, DrugName_clean), sankey_df$ReferenceKey)
+
+label_and_pivot <- function(df, group, DrugName_clean, ReferenceKey) {
+  df$group <- seq(nrow(df))
+  
+  df <- df %>%
+    pivot_wider(names_from = group,
+                values_from = DrugName_clean,
+                names_prefix = "group_")
+  
+  df <- df %>% select(-ReferenceKey)
+  return(df)
+}
+
+# sample for debugging
+# df <- split_df[[8]]
+# label_and_pivot(split_df[[8]])
+# sankey_tabulated <- bind_rows(lapply(split_df[1:100], FUN = label_and_pivot))
+
+# rows are bound together
+sankey_tabulated <- bind_rows(lapply(split_df, FUN = label_and_pivot))
+
+
+# add new column called count; then collapse the rows
+sankey_tabulated <- sankey_tabulated %>%
+  group_by(group_1, group_2, group_3) %>%
+  mutate(count = n()) %>%
+  ungroup() %>%
+  distinct(group_1, group_2, group_3, .keep_all = TRUE)
+
+sankey_tabulated <- sankey_tabulated %>% arrange(desc(count))
+
+
+write.csv(sankey_tabulated, file = paste0(path, "/sankey.csv"), row.names = FALSE)
+
+# filtering to only include where counts > 5 can easily be done on excel
+
+# for debugging, why more than one biologics
+# View(sankey_tabulated)
+# i <- 10441268
+# i <- 1083834
+# i <- 1115849
+# i <- 11760263
+# i <- 4516092
+# merged_df %>% filter(ReferenceKey == i)
+# prescription_traj %>% filter(ReferenceKey == i) %>% select(DrugName_clean, PrescriptionStartDate, PrescriptionEndDate) %>% distinct() %>% arrange(PrescriptionStartDate, PrescriptionEndDate)
