@@ -1,5 +1,4 @@
 # script sourced by wrangle.R; reused for extracting the treatment trajectory
-
 prescription_traj_list <- split(df, f = df$ReferenceKey)
 
 
@@ -27,7 +26,6 @@ source("/Users/elsiechan/Documents/GitHub/rheumatoid/02_functions.R")
 # takes 7 minutes to run on 16707 pts
 temp_list <- lapply(X = prescription_traj_list, FUN = extract_traj)
 # temp_list[["1007790"]]
-
 
 
 # Define a function to add the ReferenceKey column which is now the name of the list
